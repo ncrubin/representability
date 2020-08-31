@@ -558,7 +558,7 @@ def sz_adapted_linear_constraints(dim, Na, Nb, constraint_list, S=0, M=0):
     :param constraint_list:  List of strings indicating which constraints to make
     :return:
     """
-    if Na != Nb and M != 0:
+    if Na != Nb and M == 0:
         raise TypeError("you gave me impossible quantum numbers")
 
     dual_basis = DualBasis()
@@ -567,8 +567,8 @@ def sz_adapted_linear_constraints(dim, Na, Nb, constraint_list, S=0, M=0):
         dual_basis += s_representability_d2ab(dim, Na + Nb, M, S)
 
     # Including these would introduce linear independence.  Why?
-    #     dual_basis += trace_d2_aa(dim, Na)
-    #     dual_basis += trace_d2_bb(dim, Nb)
+        dual_basis += trace_d2_aa(dim, Na)
+        dual_basis += trace_d2_bb(dim, Nb)
 
     if 'ck' in constraint_list:
         if Na > 1:

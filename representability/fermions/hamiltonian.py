@@ -129,7 +129,9 @@ def spin_adapted_interaction_tensor_rdm_consistent(two_body_int, one_body_int):
                                                                 two_body_int[2 * q + 1, 2 * p + 1, 2 * r + 1, 2 * s + 1] +
                                                                 two_body_int[2 * q + 1, 2 * p + 1, 2 * s + 1, 2 * r + 1])
 
-        v2ab[b_ab_dict[(p, q)], b_ab_dict[(r, s)]] = two_body_int[2 * p, 2 * q + 1, 2 * r, 2 * s + 1]
+        print(two_body_int[2 * p + 1, 2 * q, 2 * r + 1, 2 * s])
+        v2ab[b_ab_dict[(p, q)], b_ab_dict[(r, s)]] = two_body_int[2 * p, 2 * q + 1, 2 * r, 2 * s + 1] + \
+                                                     two_body_int[2 * p + 1, 2 * q, 2 * r + 1, 2 * s]
 
     bas_aa, bas_ab = geminal_spin_basis(sp_dim)
     v2ab = Tensor(v2ab, basis=bas_ab, name='cckk_ab')

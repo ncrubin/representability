@@ -123,22 +123,22 @@ class Tensor(object):
         print("call tuple ", tuple(index_set))
         return self.data[tuple(index_set)]
 
-    def get_obj_size(self, obj):
-        """
-        Determine the number of 'elements' an object contains.
+    # def get_obj_size(self, obj):
+    #     """
+    #     Determine the number of 'elements' an object contains.
 
-        Integers are 1, tuples and lists are len(tuple/list)
+    #     Integers are 1, tuples and lists are len(tuple/list)
 
-        :param obj: obj to query for length
-        :return:  length
-        :rtype: Int
-        """
-        if isinstance(obj, (tuple, list)):
-            return len(obj)
-        elif isinstance(obj, (float, int, complex, bool)):
-            return 1
-        else:
-            raise TypeError("object type doesn't have a recognized length")
+    #     :param obj: obj to query for length
+    #     :return:  length
+    #     :rtype: Int
+    #     """
+    #     if isinstance(obj, (tuple, list)):
+    #         return len(obj)
+    #     elif isinstance(obj, (float, int, complex, bool)):
+    #         return 1
+    #     else:
+    #         raise TypeError("object type doesn't have a recognized length")
 
     def index_vectorized(self, *indices):
         """

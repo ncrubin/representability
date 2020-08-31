@@ -135,14 +135,19 @@ if __name__ == "__main__":
 
     print('Running System Setup')
     basis = 'sto-3g'
+    # basis = '6-31g'
     multiplicity = 1
     # charge = 0
     # geometry = [('H', [0.0, 0.0, 0.0]), ('H', [0, 0, 0.75])]
     # charge = 1
     # geometry = [('H', [0.0, 0.0, 0.0]), ('He', [0, 0, 0.75])]
     charge = 0
-    geometry = [('H', [0.0, 0.0, 0.0]), ('H', [0, 0, 0.75]),
-                ('H', [0.0, 0.0, 2 * 0.75]), ('H', [0, 0, 3 * 0.75])]
+    bd = 1.2
+    # geometry = [('H', [0.0, 0.0, 0.0]), ('H', [0, 0, bd]),
+    #             ('H', [0.0, 0.0, 2 * bd]), ('H', [0, 0, 3 * bd])]
+    geometry = [['H', [0, 0, 0]], ['H', [1.2, 0, 0]],
+                ['H', [0, 1.2, 0]], ['H', [1.2, 1.2, 0]]]
+    # geometry = [['He', [0, 0, 0]], ['H', [0, 0, 1.2]]]
     molecule = MolecularData(geometry, basis, multiplicity, charge)
     # Run Psi4.
     molecule = run_psi4(molecule,
@@ -182,8 +187,9 @@ if __name__ == "__main__":
     mm = dim ** 2
 
     h1, v2 = spin_orbital_interaction_tensor(two_body_ints, one_body_ints)
-    dual_basis = spin_orbital_linear_constraints(dim, Na + Nb,
-                                                 ['ck', 'cckk', 'kkcc', 'ckck'])
+    dual_basis = spin_orbital_linear_constraints(dim, Na, Nb,
+                                                 ['ck', 'cckk', 'kkcc', 'ckck'],
+                                                 sz=0)
     print("constructed dual basis")
     copdm = h1
     coqdm = Tensor(np.zeros((dim, dim)), name='kc')
@@ -217,19 +223,24 @@ if __name__ == "__main__":
     interaction_integral_matrix = v2.data.reshape((dim**2, dim**2))
 
     objective = cvx.Minimize(
-                cvx.trace(copdm.data * variable_dictionary['ck']) +
-                cvx.trace(interaction_integral_matrix * variable_dictionary['cckk']))
+                cvx.trace(copdm.data @ variable_dictionary['ck']) +
+                cvx.trace(interaction_integral_matrix @ variable_dictionary['cckk']))
 
     cvx_problem = cvx.Problem(objective, constraints=constraints)
     print('problem constructed')
 
     one_energy = np.trace(copdm.data.dot(opdm.data))
     two_energy = np.trace(interaction_integral_matrix @ tpdm.data.reshape((dim**2, dim**2)))  # np.einsum('ijkl,ijkl', tpdm.data, ctpdm.data)
-    print(one_energy + two_energy + nuclear_repulsion)
 
-    cvx_problem.solve(solver=cvx.SCS, verbose=True)
-    print(cvx_problem.value + nuclear_repulsion, gs_energy)
+    # cvx_problem.solve(solver=cvx.SCS, verbose=True, eps=0.5E-6, max_iters=60000)
+    cvx_problem.solve(solver=cvx.SCS, verbose=True, eps=1.5E-5, max_iters=60000)
+    # print(cvx_problem.value + nuclear_repulsion, gs_energy)
     # this should give something close to -2.147170020986181
     # assert np.isclose(cvx_problem.value + nuclear_repulsion, gs_energy)  # for 2-electron systems only
-    assert np.isclose(cvx_problem.value + nuclear_repulsion, -2.147170020986181, rtol=1.0E-4)
+    print(variable_dictionary['cckk'].value)
+    # np.save("HeHminus_631g_tpdm.npy", variable_dictionary['cckk'].value)
+    print(cvx_problem.value + nuclear_repulsion)
+    print(gs_energy)
+    print(nuclear_repulsion)
+    # assert np.isclose(cvx_problem.value + nuclear_repulsion, -2.147170020986181, rtol=1.0E-3)
 

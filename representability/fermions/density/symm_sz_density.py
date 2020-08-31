@@ -5,8 +5,8 @@ elements that are necessarily zero in the marginals.
 """
 import numpy as np
 from itertools import product
-from referenceqvm.unitary_generator import tensor_up
-from grove.alpha.fermion_transforms.jwtransform import JWTransform
+# from referenceqvm.unitary_generator import tensor_up
+# from grove.alpha.fermion_transforms.jwtransform import JWTransform
 from representability.fermions.density.density import Density
 from representability.fermions.density.symm_sz_maps import map_d1_q1, map_d2_d1, map_d2_q2, map_d2_q2_ab, \
                                                            map_d2_g2, map_d2_g2_sz
@@ -14,7 +14,7 @@ from representability.fermions.density.symm_sz_maps import map_d1_q1, map_d2_d1,
 
 class SymmOrbitalDensity(Density):
 
-    def __init__(self, rho, dim, transform=JWTransform()):
+    def __init__(self, rho, dim, transform=None):
         """
         :param rho: N-qubit density matrix
         :param dim: single particle basis rank (spin-orbital rank)

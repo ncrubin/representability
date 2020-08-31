@@ -10,8 +10,8 @@ from openfermionpsi4 import run_psi4
 from openfermion.hamiltonians import MolecularData
 from openfermion.transforms import jordan_wigner
 
-from referenceqvm.unitary_generator import tensor_up
-from forestopenfermion import qubitop_to_pyquilpauli
+# from referenceqvm.unitary_generator import tensor_up
+# from forestopenfermion import qubitop_to_pyquilpauli
 
 from representability.fermions.basis_utils import generate_parity_permutations
 
@@ -393,3 +393,41 @@ def matrix2four_tensor(matrix):
         four_tensor[p, q, r, s] = matrix[p * sp_dim + q, r * sp_dim + s]
 
     return four_tensor
+
+
+def write_sdpfile(sdpfile_name, nc, nv, nnz, nb, A, b, cvec, blocksize):
+    """
+    Write an SDP down in standard format
+
+    :param sdpfile_name: File name to write information into
+    :param Int nc: number of constraints
+    :param Int nv: number of variables
+    :param Int nnz: number of non-zero elements in the constraint set
+    :param Int nb: number of blocks in the primal solution
+    :param A: Sparse matrix representing constraints on the primal vector
+    :param b: b-vector of Ax = b where A is the constraint matrix, x is the primal vector and b is the residual
+    :param cvec: const vector c' * x
+    :param blocksize: list of ints where each element is the block size
+    """
+    with open(sdpfile_name, 'w') as fid:
+        # write top line
+        fid.write("%i %i %i %i\n" % (nc, nv, nnz, nb))
+
+        # write blocksize
+        for bb in blocksize:
+            fid.write("%i\n" % bb)
+
+        # write A matrix
+        for row in range(A.shape[0]):
+            for col in np.nonzero(A[row, :])[0]:
+                if not np.isclose(np.abs(A[row, col]), 0):
+                    fid.write(
+                        "%i %i %5.10E\n" % (row + 1, col + 1, A[row, col]))
+
+        # write b vector
+        for i in range(b.shape[0]):
+            fid.write("%5.10E\n" % b[i, 0])
+
+        # write c vector
+        for i in range(cvec.shape[0]):
+            fid.write("%5.10E\n" % cvec[i, 0])

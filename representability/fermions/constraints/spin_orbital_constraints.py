@@ -78,10 +78,83 @@ def d2_d1_mapping(dim, normalization):
             dbe.add_element('ck', (i, j), -0.5 * normalization)
             dbe.add_element('ck', (j, i), -0.5 * normalization)
             dbe.simplify()
-            # db_basis += dbe
-            dbe_list.append(dbe)
+            db_basis += dbe
+            # dbe_list.append(dbe)
 
-    return DualBasis(elements=dbe_list)  # db_basis
+    # return DualBasis(elements=dbe_list)  # db_basis
+    return db_basis
+
+
+def d2aa_d1a_mapping(dim, normalization):
+    """
+    Construct dual basis for contracting d2 -> d1
+
+    :param dim: linear dimension of the 1-RDM
+    :param normalization: normalization constant for coeff of D1 elememnts
+    :return: the dual basis of the contraction
+    :rtype: DualBasis
+    """
+    db_basis = DualBasis()
+    dbe_list = []
+    dim /= 2
+    dim = int(dim)
+    for i in range(dim):
+        for j in range(i, dim):
+            dbe = DualBasisElement()
+            for r in range(dim):
+                # duplicate entries get summed in DualBasisElement
+                dbe.add_element('cckk', (2 * i, 2 * r, 2 * j, 2 * r), 0.5)
+                dbe.add_element('cckk', (2 * j, 2 * r, 2 * i, 2 * r), 0.5)
+
+            # D1 terms
+            dbe.add_element('ck', (2 * i, 2 * j), -0.5 * normalization)
+            dbe.add_element('ck', (2 * j, 2 * i), -0.5 * normalization)
+            dbe.simplify()
+            db_basis += dbe
+            # dbe_list.append(dbe)
+
+    # return DualBasis(elements=dbe_list)  # db_basis
+    return db_basis
+
+
+def d2bb_d1b_mapping(dim, normalization):
+    """
+    Construct dual basis for contracting d2 -> d1
+
+    :param dim: linear dimension of the 1-RDM
+    :param normalization: normalization constant for coeff of D1 elememnts
+    :return: the dual basis of the contraction
+    :rtype: DualBasis
+    """
+    db_basis = DualBasis()
+    dbe_list = []
+    dim /= 2
+    dim = int(dim)
+    for i in range(dim):
+        for j in range(i, dim):
+            dbe = DualBasisElement()
+            for r in range(dim):
+                # duplicate entries get summed in DualBasisElement
+                dbe.add_element('cckk', (2 * i + 1, 2 * r  + 1, 2 * j + 1, 2 * r + 1), 0.5)
+                dbe.add_element('cckk', (2 * j + 1, 2 * r  + 1, 2 * i + 1, 2 * r + 1), 0.5)
+
+            # D1 terms
+            dbe.add_element('ck', (2 * i + 1, 2 * j + 1), -0.5 * normalization)
+            dbe.add_element('ck', (2 * j + 1, 2 * i + 1), -0.5 * normalization)
+            dbe.simplify()
+            db_basis += dbe
+            # dbe_list.append(dbe)
+
+    # return DualBasis(elements=dbe_list)  # db_basis
+    return db_basis
+
+
+def s_rep(dim, Na, Nb, S, sz):
+    dbe = DualBasisElement()
+    for i, j in product(range(dim // 2), repeat=2):
+        dbe.add_element('cckk', (2 * i, 2 * j + 1, 2 * i + 1, 2 * j), 1.0)
+    dbe.dual_scalar = 0.5 * (Na + Nb) + sz**2 - S * (S + 1)
+    return DualBasis(elements=[dbe])
 
 
 def d1_q1_mapping(dim):
@@ -114,6 +187,47 @@ def d1_q1_mapping(dim):
             dbe_list.append(dbe)
 
     return DualBasis(elements=dbe_list)  # db
+
+
+def sz_constraint(dim, sz):
+    """
+    Sz constraint is on the 1-RDM
+    :param dim:
+    :param sz:
+    :return:
+    """
+    dbe = DualBasisElement()
+    for i in range(dim // 2):
+        dbe.add_element('ck', (2 * i, 2 * i), 0.5)
+        dbe.add_element('ck', (2 * i + 1, 2 * i + 1), -0.5)
+    dbe.dual_scalar = sz
+    return DualBasis(elements=[dbe])
+
+
+def na_constraint(dim, na):
+    """
+    :param dim:
+    :param sz:
+    :return:
+    """
+    dbe = DualBasisElement()
+    for i in range(dim // 2):
+        dbe.add_element('ck', (2 * i, 2 * i), 1.0)
+    dbe.dual_scalar = na
+    return DualBasis(elements=[dbe])
+
+
+def nb_constraint(dim, nb):
+    """
+    :param dim:
+    :param sz:
+    :return:
+    """
+    dbe = DualBasisElement()
+    for i in range(dim // 2):
+        dbe.add_element('ck', (2 * i + 1, 2 * i + 1), 1.0)
+    dbe.dual_scalar = nb
+    return DualBasis(elements=[dbe])
 
 
 def d2_q2_mapping(dim):
@@ -209,7 +323,7 @@ def d2_e2_mapping(dim, measured_tpdm):
     :param measured_tpdm:  a 4-tensor of the measured 2-p
     :return:
     """
-    db = DualBasis()
+    db_elements = []
     for p, q, r, s in product(range(dim), repeat=4):
         if p * dim + q >= r * dim + s:
             dbe = DualBasisElement()
@@ -218,10 +332,10 @@ def d2_e2_mapping(dim, measured_tpdm):
             dbe.add_element('cckk', (r, s, p, q), 0.5)
 
             # add four elements of the error matrix
-            dbe.add_element('cckk_me', (p * dim + q + dim**2, r * dim + s), 0.25)
-            dbe.add_element('cckk_me', (r * dim + s + dim**2, p * dim + q), 0.25)
-            dbe.add_element('cckk_me', (p * dim + q, r * dim + s + dim**2), 0.25)
-            dbe.add_element('cckk_me', (r * dim + s, p * dim + q + dim**2), 0.25)
+            dbe.add_element('cckk_me', (p * dim + q + dim**2, r * dim + s), -0.25)
+            dbe.add_element('cckk_me', (r * dim + s + dim**2, p * dim + q), -0.25)
+            dbe.add_element('cckk_me', (p * dim + q, r * dim + s + dim**2), -0.25)
+            dbe.add_element('cckk_me', (r * dim + s, p * dim + q + dim**2), -0.25)
 
             dbe.dual_scalar = measured_tpdm[p, q, r, s].real
             dbe.simplify()
@@ -237,10 +351,10 @@ def d2_e2_mapping(dim, measured_tpdm):
                 dbe_idenity.add_element('cckk_me', (r * dim + s, p * dim + q), 0.5)
                 dbe_idenity.dual_scalar = 0.0
 
-            db += dbe
-            db += dbe_idenity
+            db_elements.append(dbe)
+            db_elements.append(dbe_idenity)
 
-    return db
+    return DualBasis(elements=db_elements)
 
 
 def d2_to_t1_matrix_antisym(dim):
@@ -573,7 +687,7 @@ def t1_tpdm_component(p, q, r, i, j, k):
             yield dbe
 
 
-def spin_orbital_linear_constraints(dim, N, constraint_list):
+def spin_orbital_linear_constraints(dim, Na, Nb, constraint_list, sz=None, s2=None):
     """
     Genrate the dual basis for the v2-RDM program
 
@@ -583,7 +697,7 @@ def spin_orbital_linear_constraints(dim, N, constraint_list):
     :return:  Dual basis for the constraint program
     :rtype: DualBasis
     """
-
+    N = Na + Nb
     dual_basis = DualBasis()
     if 'cckk' in constraint_list:
         print("d2 constraints")
@@ -594,10 +708,27 @@ def spin_orbital_linear_constraints(dim, N, constraint_list):
         print("antisymmetry constraint")
         dual_basis += antisymmetry_constraints(dim)
 
+        if s2 is not None:
+            # s-representable
+            dual_basis += s_rep(dim, Na, Nb, s2, sz)
+
     if 'ck' in constraint_list:
         print("opdm constraints")
-        dual_basis += d2_d1_mapping(dim, N - 1)
-        dual_basis += d1_q1_mapping(dim)
+        # dual_basis += d2_d1_mapping(dim, N - 1)
+        if Na > 1:
+            dual_basis += d2aa_d1a_mapping(dim, Na - 1)
+        if Nb > 1:
+            dual_basis += d2bb_d1b_mapping(dim, Nb - 1)
+
+        if sz is not None:
+            dual_basis += sz_constraint(dim, sz)
+
+        dual_basis += na_constraint(dim, Na)
+        dual_basis += nb_constraint(dim, Nb)
+
+        if 'kc' in constraint_list:
+            dual_basis += d1_q1_mapping(dim)
+
 
     # d2 -> q2
     if 'kkcc' in constraint_list:

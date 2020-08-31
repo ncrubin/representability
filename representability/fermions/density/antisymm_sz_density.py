@@ -12,14 +12,14 @@ where r is the spatial basis function rank.
 """
 import numpy as np
 from itertools import product
-from grove.alpha.fermion_transforms.jwtransform import JWTransform
+# from grove.alpha.fermion_transforms.jwtransform import JWTransform
 from representability.fermions.density.symm_sz_density import SymmOrbitalDensity
 from representability.fermions.density.antisymm_sz_maps import map_d2anti_d1_sz, map_d2symm_d1_sz
 
 
 class AntiSymmOrbitalDensity(SymmOrbitalDensity):
 
-    def __init__(self, rho, dim, transform=JWTransform()):
+    def __init__(self, rho, dim): # , transform=JWTransform()):
         """
         Full Sz symmetry adapting
 
@@ -35,7 +35,7 @@ class AntiSymmOrbitalDensity(SymmOrbitalDensity):
         :param transform: Fermionc to qubit transform object
         """
         super(AntiSymmOrbitalDensity, self).__init__(rho, dim)
-        self.transform = transform
+        # self.transform = transform
         self.dim = dim
 
     def construct_tpdm(self):

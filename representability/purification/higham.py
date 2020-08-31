@@ -100,8 +100,8 @@ def fixed_trace_positive_projection(bmat, target_trace):
     :return:
     """
     bmat = np.asarray(bmat)
-    if not np.allclose(bmat.imag, 0.0):
-        raise TypeError("This code works with real matrices only")
+    # if not np.allclose(bmat.imag, 0.0):
+    #     raise TypeError("This code works with real matrices only")
 
     map_to_four_tensor = False
     if bmat.ndim == 4:
@@ -109,8 +109,8 @@ def fixed_trace_positive_projection(bmat, target_trace):
         map_to_four_tensor = True
 
     # symmeterize bmat
-    if np.allclose(bmat - bmat.T, np.zeros_like(bmat)):
-        bmat = 0.5 * (bmat + bmat.T)
+    if np.allclose(bmat - bmat.conj().T, np.zeros_like(bmat)):
+        bmat = 0.5 * (bmat + bmat.conj().T)
 
     w, v = np.linalg.eigh(bmat)
     if np.all(w >= -1.0*float(1.0E-15)) and np.isclose(np.sum(w), target_trace):
@@ -120,7 +120,7 @@ def fixed_trace_positive_projection(bmat, target_trace):
         shifted_eigs = np.multiply(heaviside(w - sigma), (w - sigma))
         purified_matrix = np.zeros_like(bmat)
         for i in range(w.shape[0]):
-            purified_matrix += shifted_eigs[i] * v[:, [i]].dot(v[:, [i]].T)
+            purified_matrix += shifted_eigs[i] * v[:, [i]].dot(v[:, [i]].conj().T)
 
     if map_to_four_tensor:
         purified_matrix = map_to_tensor(purified_matrix)

@@ -34,15 +34,9 @@ def coleman_projection_dq(tpdm, N, error=1.0E-6, disp=False):
     :param Bool disp: optional argument for displaying updates
     :return:
     """
-    if __debug__:
-        check_antisymmetric_d2(tpdm)
-
     dim = tpdm.shape[0]
     _, _, d2_2 = coleman_decomposition(tpdm)
     # check if this thing I grabbed is actually an antisymmetric operator
-    if __debug__:
-        check_antisymmetric_d2(d2_2)
-        assert np.isclose(np.einsum('ijij', d2_2), 0.0)
 
     eye_wedge_eye = wedge_product(np.eye(dim), np.eye(dim)).astype(complex)
     eye_wedge_eye_mat = four_tensor2matrix(eye_wedge_eye)
@@ -66,12 +60,6 @@ def coleman_projection_dq(tpdm, N, error=1.0E-6, disp=False):
     d2_1 = (4 / (dim - 2)) * one_one_eye
     d2_1 -= ((4 * trace_value) / (dim * (dim - 2))) * eye_wedge_eye
 
-    if __debug__:
-        d2_1_trial = (4 / (dim - 2)) * wedge_product(
-            opdm_new - (trace_value/dim) * np.eye(dim), np.eye(dim))
-        assert np.allclose(d2_1_trial, d2_1)
-
-
     # we need to check a bunch of stuff about the reconstruct tpdm
     # a) does it have all the right symmetry
     # b) does it have the right trace and does it contract appropriately
@@ -79,16 +67,10 @@ def coleman_projection_dq(tpdm, N, error=1.0E-6, disp=False):
 
     tpdm_partial_fix = d2_0 + d2_1 + d2_2
     d2_matrix = four_tensor2matrix(tpdm_partial_fix)
-    if __debug__:
-        check_antisymmetric_d2(tpdm_partial_fix)
-        # check conversion back to the tpdm_partial_fix
-        np.testing.assert_allclose(matrix2four_tensor(d2_matrix), tpdm_partial_fix)
 
     # grabbing the 2-Q-RDM
     tqdm = map_tpdm_to_tqdm(tpdm_partial_fix, opdm_new)
     q2_matrix = four_tensor2matrix(tqdm)
-    if __debug__:
-        check_antisymmetric_d2(tqdm)
 
     residual = 10
     iter_max = 3000
@@ -100,11 +82,6 @@ def coleman_projection_dq(tpdm, N, error=1.0E-6, disp=False):
         tqdm = map_tpdm_to_tqdm(tpdm_current_iter, opdm)
         q2_matrix = four_tensor2matrix(tqdm)
 
-        if __debug__:
-            tqdm_test = 2 * eye_wedge_eye - 4 * wedge_product(opdm, np.eye(dim)) + tpdm_current_iter
-            np.testing.assert_allclose(tqdm_test, tqdm)
-
-
         # diagonalize both d2 and q2
         w, v = np.linalg.eigh(d2_matrix)
         wq, vq = np.linalg.eigh(q2_matrix)
@@ -113,21 +90,10 @@ def coleman_projection_dq(tpdm, N, error=1.0E-6, disp=False):
         exposed_operator = []
         for ii in range(w.shape[0]):
             if w[ii] < float(-1.0E-13):
-                if __debug__:
-                    # checks to see if I'm sane?
-                    assert v[:, [ii]].shape == (d2_matrix.shape[0], 1)
-                    assert v[:, [ii]].dot(np.conj(v[:, [ii]]).T).shape == d2_matrix.shape
-                    # check_antisymmetric_index(v[:, [ii]])
-
                 # get the exposing operator antisymmeterize
                 eo = v[:, [ii]].dot(np.conj(v[:, [ii]]).T)
                 eo_22_tensor = matrix2four_tensor(eo)
                 eo_22_tensor_antiy = antisymmeterizer(eo_22_tensor)
-
-                if __debug__:
-                    check_antisymmetric_d2(eo_22_tensor_antiy)  # redundant sanity check
-                    # check if operator is hermetian
-                    np.testing.assert_allclose(eo, np.conj(eo).T)
 
                 # add the operator to my list
                 exposed_operator.append(four_tensor2matrix(eo_22_tensor_antiy))
@@ -135,21 +101,10 @@ def coleman_projection_dq(tpdm, N, error=1.0E-6, disp=False):
         exposed_operator_q = []
         for ii in range(wq.shape[0]):
             if wq[ii] < float(-1.0E-13):
-                if __debug__:
-                    # checks to see if I'm sane?
-                    assert vq[:, [ii]].shape == (q2_matrix.shape[0], 1)
-                    assert vq[:, [ii]].dot(np.conj(vq[:, [ii]]).T).shape == q2_matrix.shape
-                    # check_antisymmetric_index(v[:, [ii]])
-
                 # get the exposing operator antisymmeterize
                 eo = vq[:, [ii]].dot(np.conj(vq[:, [ii]]).T)
                 eo_22_tensor = matrix2four_tensor(eo)
                 eo_22_tensor_antiy = antisymmeterizer(eo_22_tensor)
-
-                if __debug__:
-                    check_antisymmetric_d2(eo_22_tensor_antiy)  # redundant sanity check
-                    # check if operator is hermetian
-                    np.testing.assert_allclose(eo, np.conj(eo).T)
 
                 # add the operator to my list
                 exposed_operator_q.append(four_tensor2matrix(eo_22_tensor_antiy))
@@ -163,40 +118,12 @@ def coleman_projection_dq(tpdm, N, error=1.0E-6, disp=False):
             eo_0, eo_1, eo_2 = coleman_decomposition(eo)
             zero_contraction_eo.append(four_tensor2matrix(eo_2))
 
-            if __debug__:
-                # check result is sane
-                assert np.isclose(np.einsum('ijij', eo_0), np.einsum('ijij', eo))
-                # check if it contracts to zero
-                assert np.allclose(np.einsum('ikjk', eo_2), np.zeros_like(eo_2))
-                # check if the einsum is correct
-                assert np.allclose(np.einsum('ikjk', eo), np.einsum('ikjk', eo_0 + eo_1))
-                # check if it reconstructs
-                assert np.allclose(eo_0 + eo_1 + eo_2, eo)
-                # check if it's hermetian
-                assert np.allclose(zero_contraction_eo[-1], np.conj(zero_contraction_eo[-1]).T)
-                # check if eo_2 is antisymmetric
-                check_antisymmetric_d2(eo_2)
-
         num_eo_q = len(exposed_operator_q)
         zero_contraction_eo_q = []
         for ii in range(num_eo_q):
             eo = matrix2four_tensor(exposed_operator_q[ii])
             eo_0, eo_1, eo_2 = coleman_decomposition(eo)
             zero_contraction_eo_q.append(four_tensor2matrix(eo_2))
-
-            if __debug__:
-                # check result is sane
-                assert np.isclose(np.einsum('ijij', eo_0), np.einsum('ijij', eo))
-                # check if it contracts to zero
-                assert np.allclose(np.einsum('ikjk', eo_2), np.zeros_like(eo_2))
-                # check if the einsum is correct
-                assert np.allclose(np.einsum('ikjk', eo), np.einsum('ikjk', eo_0 + eo_1))
-                # check if it reconstructs
-                assert np.allclose(eo_0 + eo_1 + eo_2, eo)
-                # check if it's hermetian
-                assert np.allclose(zero_contraction_eo_q[-1], np.conj(zero_contraction_eo_q[-1]).T)
-                # check if eo_2 is antisymmetric
-                check_antisymmetric_d2(eo_2)
 
         # set up system of equations to solve for alpha terms
         Amatrix = np.zeros((num_eo + num_eo_q, num_eo + num_eo_q))
@@ -238,20 +165,12 @@ def coleman_projection_dq(tpdm, N, error=1.0E-6, disp=False):
 
         # alpha_beta = np.linalg.solve(Amatrix, -bvector)
         [alpha_beta, _, _, _] = np.linalg.lstsq(Amatrix, -bvector)
-        if __debug__:
-            assert np.allclose(np.dot(Amatrix, alpha_beta), -bvector)
-
         # update the 2-RDM matrix
         d2_new = d2_matrix.copy()
         for ii in range(num_eo):
             d2_new += alpha_beta[ii] * zero_contraction_eo[ii]
         for ii in range(num_eo_q):
             d2_new += alpha_beta[ii + num_eo] * zero_contraction_eo_q[ii]
-
-        if __debug__:
-            # check if the new d2_new is orthogonal to zero_contraction
-            for ii in range(num_eo):
-                assert np.isclose(np.trace(d2_new.dot(exposed_operator[ii])), 0.0)
 
         # check for conversion of the iterative method
         w, v = np.linalg.eigh(d2_new)
@@ -280,15 +199,9 @@ def unitary_subspace_purification_fixed_initial_trace(tpdm, N, error=1.0E-6, dis
     :param Bool disp: optional argument for displaying updates
     :return:
     """
-    if __debug__:
-        check_antisymmetric_d2(tpdm)
-
     dim = tpdm.shape[0]
     _, _, d2_2 = coleman_decomposition(tpdm)
     # check if this thing I grabbed is actually an antisymmetric operator
-    if __debug__:
-        check_antisymmetric_d2(d2_2)
-        assert np.isclose(np.einsum('ijij', d2_2), 0.0)
 
     eye_wedge_eye = wedge_product(np.eye(dim), np.eye(dim)).astype(complex)
 
@@ -310,11 +223,6 @@ def unitary_subspace_purification_fixed_initial_trace(tpdm, N, error=1.0E-6, dis
     d2_1 = (4 / (dim - 2)) * one_one_eye
     d2_1 -= ((4 * trace_value) / (dim * (dim - 2))) * eye_wedge_eye
 
-    if __debug__:
-        d2_1_trial = (4 / (dim - 2)) * wedge_product(
-            opdm_new - (trace_value/dim) * np.eye(dim), np.eye(dim))
-        assert np.allclose(d2_1_trial, d2_1)
-
     # we need to check a bunch of stuff about the reconstruct tpdm
     # a) does it have all the right symmetry
     # b) does it have the right trace and does it contract appropriately
@@ -322,10 +230,6 @@ def unitary_subspace_purification_fixed_initial_trace(tpdm, N, error=1.0E-6, dis
 
     tpdm_partial_fix = d2_0 + d2_1 + d2_2
     d2_matrix = four_tensor2matrix(tpdm_partial_fix)
-    if __debug__:
-        check_antisymmetric_d2(tpdm_partial_fix)
-        # check conversion back to the tpdm_partial_fix
-        np.testing.assert_allclose(matrix2four_tensor(d2_matrix), tpdm_partial_fix)
 
     residual = 10
     iter_max = 3000
@@ -335,22 +239,10 @@ def unitary_subspace_purification_fixed_initial_trace(tpdm, N, error=1.0E-6, dis
         exposed_operator = []
         for ii in range(w.shape[0]):
             if w[ii] < float(-1.0E-13):
-                if __debug__:
-                    # checks to see if I'm sane?
-                    assert v[:, [ii]].shape == (d2_matrix.shape[0], 1)
-                    assert v[:, [ii]].dot(np.conj(v[:, [ii]]).T).shape == d2_matrix.shape
-                    # check_antisymmetric_index(v[:, [ii]])
-
                 # get the exposing operator antisymmeterize
                 eo = v[:, [ii]].dot(np.conj(v[:, [ii]]).T)
                 eo_22_tensor = matrix2four_tensor(eo)
                 eo_22_tensor_antiy = antisymmeterizer(eo_22_tensor)
-
-                if __debug__:
-                    check_antisymmetric_d2(eo_22_tensor_antiy)  # redundant sanity check
-                    # check if operator is hermetian
-                    np.testing.assert_allclose(eo, np.conj(eo).T)
-
                 # add the operator to my list
                 exposed_operator.append(four_tensor2matrix(eo_22_tensor_antiy))
 
@@ -363,20 +255,6 @@ def unitary_subspace_purification_fixed_initial_trace(tpdm, N, error=1.0E-6, dis
             eo_0, eo_1, eo_2 = coleman_decomposition(eo)
             zero_contraction_eo.append(four_tensor2matrix(eo_2))
 
-            if __debug__:
-                # check result is sane
-                assert np.isclose(np.einsum('ijij', eo_0), np.einsum('ijij', eo))
-                # check if it contracts to zero
-                assert np.allclose(np.einsum('ikjk', eo_2), np.zeros_like(eo_2))
-                # check if the einsum is correct
-                assert np.allclose(np.einsum('ikjk', eo), np.einsum('ikjk', eo_0 + eo_1))
-                # check if it reconstructs
-                assert np.allclose(eo_0 + eo_1 + eo_2, eo)
-                # check if it's hermetian
-                assert np.allclose(zero_contraction_eo[-1], np.conj(zero_contraction_eo[-1]).T)
-                # check if eo_2 is antisymmetric
-                check_antisymmetric_d2(eo_2)
-
         # set up system of equations to solve for alpha terms
         Amatrix = np.zeros((num_eo, num_eo))
         bvector = np.zeros((num_eo, 1))
@@ -387,18 +265,11 @@ def unitary_subspace_purification_fixed_initial_trace(tpdm, N, error=1.0E-6, dis
 
         # alpha = np.linalg.solve(Amatrix, -bvector)
         [alpha, _, _, _] = np.linalg.lstsq(Amatrix, -bvector)
-        if __debug__:
-            assert np.allclose(np.dot(Amatrix, alpha), -bvector)
 
         # update the 2-RDM matrix
         d2_new = d2_matrix.copy()
         for ii in range(num_eo):
             d2_new += alpha[ii] * zero_contraction_eo[ii]
-
-        if __debug__:
-            # check if the new d2_new is orthogonal to zero_contraction
-            for ii in range(num_eo):
-                assert np.isclose(np.trace(d2_new.dot(exposed_operator[ii])), 0.0)
 
         # check for conversion of the iterative method
         w, v = np.linalg.eigh(d2_new)

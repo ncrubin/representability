@@ -106,7 +106,7 @@ def sdp_nrep_sz_reconstruction(corrupted_tpdm_aa, corrupted_tpdm_bb,
     return rdms_solution[4], rdms_solution[5], rdms_solution[6]
 
 
-def sdp_nrep_reconstruction(corrupted_tpdm, num_alpha, num_beta):
+def sdp_nrep_reconstruction(corrupted_tpdm, num_alpha, num_beta, sz=0, s2=None):
     """
     Reconstruct a 2-RDm that looks like the input corrupted tpdm
 
@@ -120,8 +120,8 @@ def sdp_nrep_reconstruction(corrupted_tpdm, num_alpha, num_beta):
     if np.ndim(corrupted_tpdm) != 4:
         raise TypeError("corrupted_tpdm must be a 4-tensor")
 
-    if num_alpha != num_beta:
-        raise ValueError("right now we are not supporting differing spin numbers")
+    # if num_alpha != num_beta:
+    #     raise ValueError("right now we are not supporting differing spin numbers")
 
     sp_dim = corrupted_tpdm.shape[0]  # single-particle rank
     opdm = np.zeros((sp_dim, sp_dim), dtype=int)
@@ -137,7 +137,8 @@ def sdp_nrep_reconstruction(corrupted_tpdm, num_alpha, num_beta):
     error_matrix = spin_orbital_marginal_norm_min(sp_dim ** 2, tensor_name='cckk_me')
     rdms = MultiTensor([opdm, oqdm, tpdm, tqdm, tgdm, error_matrix])
 
-    db = spin_orbital_linear_constraints(sp_dim, num_alpha + num_beta, ['ck', 'cckk', 'kkcc', 'ckck'])
+    db = spin_orbital_linear_constraints(sp_dim, num_alpha, num_beta, ['ck', 'cckk', 'kkcc', 'ckck'],
+                                         sz=sz, s2=s2)
     db += d2_e2_mapping_spinorbital(sp_dim, corrupted_tpdm)
 
     rdms.dual_basis = db
@@ -157,14 +158,14 @@ def sdp_nrep_reconstruction(corrupted_tpdm, num_alpha, num_beta):
     sdp.blockstruct = blocklist
     sdp.nb = nb
     sdp.Amat = A.real
-    sdp.bvec = c.todense().real
+    sdp.bvec = c.toarray().real
 
     sdp.cvec = rdms.vectorize_tensors().real
 
     sdp.Initialize()
 
-    sdp.epsilon = float(1.0E-8)
-    sdp.inner_solve = "EXACT"
+    sdp.epsilon = float(1.0E-5)
+    sdp.inner_solve = "CG"
     sdp.disp = True
     solve_bpsdp(sdp)
 
