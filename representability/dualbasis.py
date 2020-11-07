@@ -17,9 +17,8 @@ class DualBasisElement(object):
     dual_scalar is the coefficient for the inner product of the dual operator
     and the primal vector
     """
-    def __init__(self, tensor_names=None, tensor_elements=None, tensor_coeffs=None, bias=0, scalar=0):
-        # DON'T PUT MUTABLE TYPES AS OBJECT INIT PARAMETERS. MUTABLE INPUTS ARE ABSORBED BY ALL FUTURE OBJECT INSTANCES
-
+    def __init__(self, tensor_names=None, tensor_elements=None,
+                 tensor_coeffs=None, bias=0, scalar=0):
         # these specify which tensor of MultiTensor to talk to and which elements
         if tensor_names is None:
             self.primal_tensors_names = []

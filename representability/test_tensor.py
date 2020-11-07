@@ -38,6 +38,7 @@ def test_tensor_index():
     :return:
     """
     a = np.arange(16).reshape((4, 4), order='C')
+    print(a)
     basis = [(0, 0), (0, 1), (1, 0), (1, 1)]
     basis = index_tuple_basis(basis)
     tt = Tensor(a, basis=basis)
@@ -53,6 +54,13 @@ def test_tensor_index():
     assert np.isclose(tt.index_vectorized(0, 1, 1, 0), 6)
     assert np.isclose(tt.index_vectorized(0, 1, 1, 1), 7)
     assert np.isclose(tt.index_vectorized(1, 0, 0, 0), 8)
+    assert np.isclose(tt.index_vectorized(1, 0, 0, 1), 9)
+    assert np.isclose(tt.index_vectorized(1, 0, 1, 0), 10)
+    assert np.isclose(tt.index_vectorized(1, 0, 1, 1), 11)
+    assert np.isclose(tt.index_vectorized(1, 1, 0, 0), 12)
+    assert np.isclose(tt.index_vectorized(1, 1, 0, 1), 13)
+    assert np.isclose(tt.index_vectorized(1, 1, 1, 0), 14)
+    assert np.isclose(tt.index_vectorized(1, 1, 1, 1), 15)
     # etc...
 
     a = np.arange(16).reshape((4, 4), order='C')
@@ -66,6 +74,11 @@ def test_tensor_index():
     assert np.isclose(tt.index_vectorized(1, 2), 6)
     assert np.isclose(tt.index_vectorized(1, 3), 7)
 
+    b = np.arange(16, 16 + 36).reshape((6, 6), order='C')
+    print(b)
+    basis = [(0, 0), (0, 1), (0, 2), (0, 3), (1, 2), (2, 3)]
+    basis = index_tuple_basis(basis)
+    tb = Tensor(b, basis=basis)
 
 def test_tensor_init():
     """
@@ -146,3 +159,5 @@ def test_tensor_basis():
         assert val == rand_mat[
             test_tensor.basis.rev(i), test_tensor.basis.rev(j)]
 
+if __name__ == "__main__":
+    test_tensor_index()

@@ -129,7 +129,6 @@ def spin_adapted_interaction_tensor_rdm_consistent(two_body_int, one_body_int):
                                                                 two_body_int[2 * q + 1, 2 * p + 1, 2 * r + 1, 2 * s + 1] +
                                                                 two_body_int[2 * q + 1, 2 * p + 1, 2 * s + 1, 2 * r + 1])
 
-        print(two_body_int[2 * p + 1, 2 * q, 2 * r + 1, 2 * s])
         v2ab[b_ab_dict[(p, q)], b_ab_dict[(r, s)]] = two_body_int[2 * p, 2 * q + 1, 2 * r, 2 * s + 1] + \
                                                      two_body_int[2 * p + 1, 2 * q, 2 * r + 1, 2 * s]
 
@@ -139,6 +138,56 @@ def spin_adapted_interaction_tensor_rdm_consistent(two_body_int, one_body_int):
     v2aa = Tensor(v2aa, basis=bas_aa, name='cckk_aa')
 
     return opdm_a_interaction, opdm_b_interaction, v2aa, v2bb, v2ab
+
+
+def make_sz_spin_adapted_hamiltonian(oei, tei):
+    """
+    Make the sz spin-adapted Hamiltonian tensors
+
+    tei = <i, j, k, l> corresponds to i(1)* j(2)* k(2) l(1)
+
+    To derive
+    x, y are spin-variable index
+    0.5 * sum{pqrs}V_{pqrs} sum_{x, y} (px)^ (qy)^ (ry) (sx)
+
+    :param oei: spatial one-electron integrals
+    :param tei: spatial two-electron integrals
+    """
+    sdim = oei.shape[0]
+    bas_aa = {}
+    bas_ab = {}
+    cnt_aa = 0
+    cnt_ab = 0
+    for p, q in product(range(sdim), repeat=2):
+        if p < q:
+            bas_aa[(p, q)] = cnt_aa
+            cnt_aa += 1
+        bas_ab[(p, q)] = cnt_ab
+        cnt_ab += 1
+    v2aa = np.zeros((sdim * (sdim - 1) // 2, sdim * (sdim - 1) // 2))
+    v2ab = np.zeros((sdim * sdim , sdim * sdim))
+    rev_bas_aa = dict(zip(bas_aa.values(), bas_aa.keys()))
+    rev_bas_ab = dict(zip(bas_ab.values(), bas_ab.keys()))
+
+    for r, s in product(range(len(bas_aa)), repeat=2):
+        i, j = rev_bas_aa[r]
+        k, l = rev_bas_aa[s]
+        v2aa[r, s] = 0.5 * (tei[i, j, l, k] - tei[j, i, l, k] -
+                            tei[i, j, k, l] + tei[j, i, k, l])
+
+    for r, s in product(range(len(bas_ab)), repeat=2):
+        i, j = rev_bas_ab[r]
+        k, l = rev_bas_ab[s]
+        # we don't multiply by 0.5 because we count alpha-beta and beta-alpha
+        v2ab[r, s] = tei[i, j, l, k]
+
+    opdm_a = Tensor(oei, name='ck_a')
+    opdm_b = Tensor(oei, name='ck_b')
+    bas_aa, bas_ab = geminal_spin_basis(sdim)
+    v2ab = Tensor(v2ab, basis=bas_ab, name='cckk_ab')
+    v2bb = Tensor(v2aa, basis=bas_aa, name='cckk_bb')
+    v2aa = Tensor(v2aa, basis=bas_aa, name='cckk_aa')
+    return opdm_a, opdm_b, v2aa, v2bb, v2ab
 
 
 def spin_orbital_marginal_norm_min(dim, tensor_name='ME', basis=None):

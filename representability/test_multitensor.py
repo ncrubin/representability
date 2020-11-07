@@ -95,3 +95,37 @@ def test_add_element():
     assert set(dbe3.primal_elements) == {(0, 1), (1, 2, 3, 4)}
     assert np.allclose(dbe3.primal_coeffs, [1, 1])
     assert set(dbe3.primal_tensors_names) == {'ck', 'cckk'}
+
+
+def test_mt_vectorize():
+    from representability.tensor import index_tuple_basis
+    from representability.tensor import Bijection
+    a = np.arange(16).reshape((4, 4), order='C')
+    print(a)
+    basis = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    basis = index_tuple_basis(basis)
+    ta = Tensor(a, basis=basis, name='a')
+    assert np.allclose(ta.data, a)
+    assert ta.size == 16
+    assert isinstance(ta.basis, Bijection)
+
+    b = np.arange(16, 16 + 36).reshape((6, 6), order='C')
+    print(b)
+    basis = [(0, 0), (0, 1), (0, 2), (0, 3), (1, 2), (2, 3)]
+    basis = index_tuple_basis(basis)
+    tb = Tensor(b, basis=basis, name='b')
+
+    mt = MultiTensor([ta, tb])
+
+    dbe = DualBasisElement()
+    dbe.add_element('a', (0, 0, 0, 1), 1.0)  # 1
+    dbe.add_element('b', (0, 1, 0, 2), 1.0)  # 24
+
+    assert mt.off_set_map == {'a': 0, 'b': 16}
+    mt_vec_idx, _ = mt.synthesize_element(dbe)
+    assert mt_vec_idx[0] == 1
+    assert mt_vec_idx[1] == 24
+
+
+if __name__ == "__main__":
+    test_mt_vectorize()

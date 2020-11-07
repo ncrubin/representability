@@ -8,9 +8,6 @@ and comprehensive testing suite.
 import sys
 from itertools import product
 import numpy as np
-from grove.alpha.fermion_transforms.jwtransform import JWTransform
-from referenceqvm.unitary_generator import tensor_up
-from pyquil.paulis import PauliTerm, PauliSum
 
 from representability.fermions.density.antisymm_sz_density import AntiSymmOrbitalDensity
 from representability.fermions.density.spin_density import SpinOrbitalDensity
@@ -24,7 +21,6 @@ from openfermion.hamiltonians import MolecularData
 from openfermion.ops import FermionOperator
 from openfermionpsi4 import run_psi4
 
-from forestopenfermion.pyquil_connector import qubitop_to_pyquilpauli
 
 
 # probably want to upgrade this with yield fixture.  This will need to be an object
@@ -203,10 +199,7 @@ def test_unspin_adapt_1():
 
     dim = molecule.n_qubits
     rdm_generator_antisym = AntiSymmOrbitalDensity(rho, molecule.n_qubits)
-    rdm_generator_spin_orbital = SpinOrbitalDensity(rho, molecule.n_qubits)
     tpdm_aa, tpdm_bb, tpdm_ab, [bas_aa, bas_ab] = rdm_generator_antisym.construct_tpdm()
-    tpdm = rdm_generator_spin_orbital.construct_tpdm()
-    opdm = rdm_generator_spin_orbital.construct_opdm()
 
     assert np.allclose(opdm, molecule.fci_one_rdm)
     assert np.allclose(tpdm, tpdm_from_of)
@@ -233,3 +226,7 @@ def test_unspin_adapt_1():
 
     t_tpdm_aa, t_tpdm_bb, t_tpdm_ab = get_sz_spin_adapted(tpdm)
     assert np.allclose(t_tpdm_ab, tpdm_ab)
+
+
+if __name__ == "__main__":
+    test_unspin_adapt_1()

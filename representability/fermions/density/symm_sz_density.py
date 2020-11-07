@@ -11,6 +11,8 @@ from representability.fermions.density.density import Density
 from representability.fermions.density.symm_sz_maps import map_d1_q1, map_d2_d1, map_d2_q2, map_d2_q2_ab, \
                                                            map_d2_g2, map_d2_g2_sz
 
+import openfermion as of
+
 
 class SymmOrbitalDensity(Density):
 
@@ -49,18 +51,16 @@ class SymmOrbitalDensity(Density):
         """
         # self.dim/2 because rank is now spatial basis function rank
         tensor = np.zeros(tuple([int(self.dim/2)] * rank), dtype=complex)
-        for tindices in product(range(int(self.dim/2)), repeat=rank):
-            # get the spatial indices
-            spin_free_indices = list(map(lambda x: 2 * tindices[x] + updown[x],
-                                    range(len(tindices))))
-
-            pauli_proj_op = self.transform.product_ops(
-                            list(spin_free_indices[:int(rank/2)] +
-                                 spin_free_indices[int(rank/2):][::-1]), conjugates)
-
-            lifted_op = tensor_up(pauli_proj_op, self.num_qubits)
-            element = np.trace(lifted_op.dot(self.rho))
-            tensor[tindices] = element
+        of_con_upper = [1 if np.isclose(x, -1) else 0 for x in conjugates[:rank//2]]
+        of_con_lower = [1 if np.isclose(x, -1) else 0 for x in conjugates[rank//2:]]
+        updown_upper = updown[:rank//2]
+        updown_lower = updown[rank//2:]
+        for indices in product(range(self.dim//2), repeat=rank):
+            fop_u = [(2 * x + y, of_con_upper[idx]) for idx, (x, y) in enumerate(zip(indices[:rank//2], updown_upper))]
+            fop_l = [(2 * x + y, of_con_lower[idx]) for idx, (x, y) in enumerate(zip(indices[rank//2:], updown_lower))]
+            print(fop_u + fop_l[::-1])
+            op = of.get_sparse_operator(of.FermionOperator(tuple(fop_u + fop_l[::-1])), n_qubits=self.dim)
+            tensor[indices] = (op @ self.rho).diagonal().sum()
         return tensor
 
 

@@ -10,14 +10,17 @@ The 1-RDMs are block diagonal matrices corresponding to their spin-index
 aa, bb, ab blocks with (r*(r - 1)/2), r*(r - 1)/2, and r**2) linear size
 where r is the spatial basis function rank.
 """
+from typing import Union
 import numpy as np
+import scipy as sp
 from itertools import product
-# from grove.alpha.fermion_transforms.jwtransform import JWTransform
-from representability.fermions.density.symm_sz_density import SymmOrbitalDensity
-from representability.fermions.density.antisymm_sz_maps import map_d2anti_d1_sz, map_d2symm_d1_sz
+from representability.fermions.density.antisymm_sz_maps import (
+    map_d2anti_d1_sz, map_d2symm_d1_sz, get_sz_spin_adapted, )
+import openfermion as of
 
 
-class AntiSymmOrbitalDensity(SymmOrbitalDensity):
+
+class AntiSymmOrbitalDensity:
 
     def __init__(self, rho, dim): # , transform=JWTransform()):
         """
@@ -34,54 +37,181 @@ class AntiSymmOrbitalDensity(SymmOrbitalDensity):
         :param dim: single particle basis rank (spin-orbital rank)
         :param transform: Fermionc to qubit transform object
         """
-        super(AntiSymmOrbitalDensity, self).__init__(rho, dim)
+        # super(AntiSymmOrbitalDensity, self).__init__(rho, dim)
         # self.transform = transform
         self.dim = dim
+        self.rho = rho
+
+    def get_tpdm(self, wfn: Union[sp.sparse.coo_matrix, sp.sparse.csr_matrix,
+                            sp.sparse.csc_matrix], nso: int) -> np.ndarray:
+        """
+        :param wfn: wavefunction as coo_sparse matrix
+        :param nso:  number-spin-orbitals
+        """
+        if isinstance(wfn, (sp.sparse.coo_matrix, sp.sparse.csc_matrix)):
+            wfn = wfn.tocsr()
+            # wfn = wfn.toarray()
+        tpdm = np.zeros((nso, nso, nso, nso), dtype=wfn.dtype)
+        creation_ops = [
+            of.get_sparse_operator(
+                of.jordan_wigner(of.FermionOperator(((p, 1)))),
+                n_qubits=nso)
+            for p in range(nso)
+        ]
+        for p, q, r, s in product(range(nso), repeat=4):
+            if p == q or r == s:
+                continue
+            operator = creation_ops[p] @ creation_ops[q] @ creation_ops[
+                r].conj().transpose() @ creation_ops[s].conj().transpose()
+            if wfn.shape[0] == wfn.shape[
+                1]:  # we are working with a density matrix
+                val = np.sum((wfn @ operator).diagonal())
+            else:
+                val = wfn.conj().transpose() @ operator @ wfn
+            if isinstance(val, (float, complex, int)):
+                tpdm[p, q, r, s] = val
+            else:
+                tpdm[p, q, r, s] = val[0, 0]
+        return tpdm
+
+    def get_opdm(self, wfn: Union[sp.sparse.coo_matrix, sp.sparse.csr_matrix,
+                            sp.sparse.csc_matrix], nso: int) -> np.ndarray:
+        if isinstance(wfn, (sp.sparse.coo_matrix, sp.sparse.csc_matrix)):
+            wfn = wfn.tocsr()
+            wfn = wfn.toarray()
+        opdm = np.zeros((nso, nso), dtype=wfn.dtype)
+        a_ops = [
+            of.get_sparse_operator(
+                of.jordan_wigner(of.FermionOperator(((p, 0)))),
+                n_qubits=nso)
+            for p in range(nso)
+        ]
+        for p, q in product(range(nso), repeat=2):
+            operator = a_ops[p].conj().T @ a_ops[q]
+            if wfn.shape[0] == wfn.shape[
+                1]:  # we are working with a density matrix
+                val = np.trace(wfn @ operator)
+            else:
+                val = wfn.conj().transpose() @ operator @ wfn
+            # print((p, q, r, s), val.toarray()[0, 0])
+            if isinstance(val, (float, complex, int)):
+                opdm[p, q] = val
+            else:
+                opdm[p, q] = val[0, 0]
+
+            opdm[p, q] = val
+        return opdm
+
+    def get_tqdm(self, wfn: Union[sp.sparse.coo_matrix, sp.sparse.csr_matrix,
+                            sp.sparse.csc_matrix], nso: int) -> np.ndarray:
+        """
+
+        :param wfn: wavefunction as coo_sparse matrix
+        :param nso:  number-spin-orbitals
+        """
+        if isinstance(wfn, (sp.sparse.coo_matrix, sp.sparse.csc_matrix)):
+            wfn = wfn.tocsr()
+            wfn = wfn.toarray()
+        tpdm = np.zeros((nso, nso, nso, nso), dtype=wfn.dtype)
+        a_ops = [
+            of.get_sparse_operator(
+                of.jordan_wigner(of.FermionOperator(((p, 0)))),
+                n_qubits=nso)
+            for p in range(nso)
+        ]
+        for p, q, r, s in product(range(nso), repeat=4):
+            if p == q or r == s:
+                continue
+            operator = a_ops[p] @ a_ops[q] @ a_ops[r].conj().transpose() @ \
+                       a_ops[s].conj().transpose()
+            if wfn.shape[0] == wfn.shape[
+                1]:  # we are working with a density matrix
+                val = np.trace(wfn @ operator)
+            else:
+                val = wfn.conj().transpose() @ operator @ wfn
+            # print((p, q, r, s), val.toarray()[0, 0])
+            tpdm[p, q, r, s] = val  # val.toarray()[0, 0]
+        return tpdm
+
+    def get_phdm(self, wfn: Union[sp.sparse.coo_matrix, sp.sparse.csr_matrix,
+                            sp.sparse.csc_matrix], nso: int) -> np.ndarray:
+        """
+
+        :param wfn: wavefunction as coo_sparse matrix
+        :param nso:  number-spin-orbitals
+        """
+        if isinstance(wfn, (sp.sparse.coo_matrix, sp.sparse.csc_matrix)):
+            wfn = wfn.tocsr()
+            wfn = wfn.toarray()
+        tpdm = np.zeros((nso, nso, nso, nso), dtype=wfn.dtype)
+        a_ops = [
+            of.get_sparse_operator(
+                of.jordan_wigner(of.FermionOperator(((p, 0)))),
+                n_qubits=nso)
+            for p in range(nso)
+        ]
+        for p, q, r, s in product(range(nso), repeat=4):
+            operator = a_ops[p].conj().T @ a_ops[q] @ a_ops[r].conj().T @ a_ops[s]
+            if wfn.shape[0] == wfn.shape[
+                1]:  # we are working with a density matrix
+                val = np.trace(wfn @ operator)
+            else:
+                val = wfn.conj().transpose() @ operator @ wfn
+            # print((p, q, r, s), val.toarray()[0, 0])
+            tpdm[p, q, r, s] = val  # val.toarray()[0, 0]
+        return tpdm
+
+    def construct_opdm(self):
+        """
+        Return the two-particle density matrix
+        <psi|a_{p, sigma}^{\dagger}a_{q, sigma'}^{\dagger}a_{s, sigma'}a_{r, sigma}|psi> """
+        opdm = self.get_opdm(self.rho, self.dim)
+        return opdm[::2, ::2], opdm[1::2, 1::2]
+
+    def construct_ohdm(self):
+        """
+        Return the two-particle density matrix
+        <psi|a_{p, sigma}^{\dagger}a_{q, sigma'}^{\dagger}a_{s, sigma'}a_{r, sigma}|psi> """
+        opdm = self.get_opdm(self.rho, self.dim)
+        ohdm = np.eye(opdm.shape[0]) - opdm
+        return ohdm[::2, ::2], ohdm[1::2, 1::2]
 
     def construct_tpdm(self):
         """
         Return the two-particle density matrix
-<psi|a_{p, sigma}^{\dagger}a_{q, sigma'}^{\dagger}a_{s, sigma'}a_{r, sigma}|psi> """
-        conjugate = [-1, -1, 1, 1]
-        spin_blocks = [[0, 0, 0, 0], [1, 1, 1, 1], [0, 1, 0, 1]]
-        rdms = list(map(lambda x: self._tensor_construct(len(conjugate), conjugate,
-                                                    x), spin_blocks))
-        # antisymmetric basis dimension
-        ab_dim = int((self.dim/2) * (self.dim/2 - 1) / 2)
-        d2_aa = np.zeros((ab_dim, ab_dim))
-        d2_bb = np.zeros_like(d2_aa)
-        d2_ab = np.zeros((int((self.dim / 2)**2), int((self.dim / 2)**2)))
+        <psi|a_{p, sigma}^{\dagger}a_{q, sigma'}^{\dagger}a_{s, sigma'}a_{r, sigma}|psi> """
+        tpdm = self.get_tpdm(self.rho, self.dim)
 
         # build basis look up table
         bas_aa = {}
         bas_ab = {}
         cnt_aa = 0
         cnt_ab = 0
+        sdim = self.dim // 2
         # iterate over spatial orbital indices
         for p, q in product(range(int(self.dim/2)), repeat=2):
-            if q > p:
+            if p < q:
                 bas_aa[(p, q)] = cnt_aa
                 cnt_aa += 1
             bas_ab[(p, q)] = cnt_ab
             cnt_ab += 1
 
-        # iterate over 4 spatial orbital indices
-        for i, j, k, l in product(range(int(self.dim/2)), repeat=4):
-            d2_ab[bas_ab[(i, j)], bas_ab[(k, l)]] = rdms[2][i, j, k, l].real
+        rev_bas_aa = dict(zip(bas_aa.values(), bas_aa.keys()))
+        rev_bas_ab = dict(zip(bas_ab.values(), bas_ab.keys()))
 
-            if i < j and k < l:
-                d2_aa[bas_aa[(i, j)], bas_aa[(k, l)]] = rdms[0][i, j, k, l].real - \
-                                                        rdms[0][i, j, l, k].real - \
-                                                        rdms[0][j, i, k, l].real + \
-                                                        rdms[0][j, i, l, k].real
+        d2_aa = np.zeros((sdim * (sdim - 1) // 2, sdim * (sdim - 1) // 2))
+        d2_bb = np.zeros((sdim * (sdim - 1) // 2, sdim * (sdim - 1) // 2))
+        d2_ab = np.zeros((sdim * sdim, sdim * sdim))
 
-                d2_bb[bas_aa[(i, j)], bas_aa[(k, l)]] = rdms[1][i, j, k, l].real - \
-                                                        rdms[1][i, j, l, k].real - \
-                                                        rdms[1][j, i, k, l].real + \
-                                                        rdms[1][j, i, l, k].real
-
-                d2_aa[bas_aa[(i, j)], bas_aa[(k, l)]] *= 0.5
-                d2_bb[bas_aa[(i, j)], bas_aa[(k, l)]] *= 0.5
+        for r, s in product(range(len(bas_aa)), repeat=2):
+            i, j = rev_bas_aa[r]
+            k, l = rev_bas_aa[s]
+            d2_aa[r, s] = tpdm[2 * i, 2 * j, 2 * l, 2 * k].real
+            d2_bb[r, s] = tpdm[2 * i + 1, 2 * j + 1, 2 * l + 1, 2 * k + 1].real
+        for r, s in product(range(len(bas_ab)), repeat=2):
+            i, j = rev_bas_ab[r]
+            k, l = rev_bas_ab[s]
+            d2_ab[r, s] = tpdm[2 * i, 2 * j + 1, 2 * l + 1, 2 * k].real
 
         return d2_aa, d2_bb, d2_ab, [bas_aa, bas_ab]
 
@@ -91,52 +221,81 @@ class AntiSymmOrbitalDensity(SymmOrbitalDensity):
 
         <psi|a_{p, sigma}a_{q, sigma'}a_{s, sigma'}^{\dagger}a_{r, sigma}^{\dagger}|psi>
         """
-        conjugate = [1, 1, -1, -1]
-        spin_blocks = [[0, 0, 0, 0], [1, 1, 1, 1], [0, 1, 0, 1]]
-        rdms = list(map(lambda x: self._tensor_construct(len(conjugate), conjugate,
-                                                    x), spin_blocks))
+        tqdm = self.get_tqdm(self.rho, self.dim)
 
-        # antisymmetric basis dimension
-        ab_dim = int((self.dim/2) * (self.dim/2 - 1) / 2)
-        sp_dim = int(self.dim/2)**2
-        div2dim = int(self.dim / 2)
-        q2_aa = np.zeros((ab_dim, ab_dim))
-        q2_bb = np.zeros_like(q2_aa)
-        q2_ab = np.zeros((sp_dim, sp_dim))
-
-        # build basis look up table
-        bas_aa = {}
-        bas_ab = {}
+        sdim = self.dim // 2
+        # iterate over spatial orbital indices
         cnt_aa = 0
         cnt_ab = 0
-        # iterate over spatial orbital indices
-        for p, q in product(range(div2dim), repeat=2):
-            if q > p:
+        bas_aa = {}
+        bas_ab = {}
+        for p, q in product(range(int(self.dim / 2)), repeat=2):
+            if p < q:
                 bas_aa[(p, q)] = cnt_aa
                 cnt_aa += 1
             bas_ab[(p, q)] = cnt_ab
             cnt_ab += 1
 
-        # iterate over 4 spatial orbital indices
-        for i, j, k, l in product(range(div2dim), repeat=4):
-            q2_ab[bas_ab[(i, j)], bas_ab[(k, l)]] = rdms[2][i, j, k, l].real
+        rev_bas_aa = dict(zip(bas_aa.values(), bas_aa.keys()))
+        rev_bas_ab = dict(zip(bas_ab.values(), bas_ab.keys()))
 
-            if i < j and k < l:
-                q2_aa[bas_aa[(i, j)], bas_aa[(k, l)]] = rdms[0][i, j, k, l].real - \
-                                                        rdms[0][i, j, l, k].real - \
-                                                        rdms[0][j, i, k, l].real + \
-                                                        rdms[0][j, i, l, k].real
+        q2_aa = np.zeros((sdim * (sdim - 1) // 2, sdim * (sdim - 1) // 2))
+        q2_bb = np.zeros((sdim * (sdim - 1) // 2, sdim * (sdim - 1) // 2))
+        q2_ab = np.zeros((sdim * sdim, sdim * sdim))
 
-                q2_bb[bas_aa[(i, j)], bas_aa[(k, l)]] = rdms[1][i, j, k, l].real - \
-                                                        rdms[1][i, j, l, k].real - \
-                                                        rdms[1][j, i, k, l].real + \
-                                                        rdms[1][j, i, l, k].real
-
-
-                q2_aa[bas_aa[(i, j)], bas_aa[(k, l)]] *= 0.5
-                q2_bb[bas_aa[(i, j)], bas_aa[(k, l)]] *= 0.5
+        for r, s in product(range(len(bas_aa)), repeat=2):
+            i, j = rev_bas_aa[r]
+            k, l = rev_bas_aa[s]
+            q2_aa[r, s] = tqdm[2 * i, 2 * j, 2 * l, 2 * k].real
+            q2_bb[r, s] = tqdm[2 * i + 1, 2 * j + 1, 2 * l + 1, 2 * k + 1].real
+        for r, s in product(range(len(bas_ab)), repeat=2):
+            i, j = rev_bas_ab[r]
+            k, l = rev_bas_ab[s]
+            q2_ab[r, s] = tqdm[2 * i, 2 * j + 1, 2 * l + 1, 2 * k].real
 
         return q2_aa, q2_bb, q2_ab, [bas_aa, bas_ab]
+
+
+    def construct_phdm(self):
+        """
+        Return the particle-hole density matrix
+
+        <psi|a_{p, sigma}^{\dagger}a_{q, sigma'}a_{s, sigma'}^{\dagger}a_{r, sigma}|psi>
+        """
+        conjugate = [-1, 1, -1, 1]
+        spin_blocks = [[0, 1, 0, 1], [1, 0, 1, 0], [0, 0, 0, 0], [1, 1, 1, 1],
+                       [0, 0, 1, 1], [1, 1, 0, 0]]
+        phdm = self.get_phdm(self.rho, self.dim)
+        sdim = self.dim//2
+        rdms = []
+        rdms.append(np.einsum('pqrs->pqsr', phdm[::2, 1::2, 1::2, ::2]).reshape((sdim**2, sdim**2)))
+        rdms.append(np.einsum('pqrs->pqsr', phdm[1::2, ::2, ::2, 1::2]).reshape((sdim**2, sdim**2)))
+        rdms.append(np.einsum('pqrs->pqsr', phdm[::2, ::2, ::2, ::2]))
+        rdms.append(np.einsum('pqrs->pqsr', phdm[1::2, 1::2, 1::2, 1::2]))
+        rdms.append(np.einsum('pqrs->pqsr', phdm[::2, ::2, 1::2, 1::2]))
+        rdms.append(np.einsum('pqrs->pqsr', phdm[1::2, 1::2, ::2, ::2]))
+        # unfortunately, this will not do in terms of a tensor structure.  Yes, the code works but when it is unrolled
+        # into a matrix on the SDP side there is no guarantee of the correct ordering.
+
+        # g2_aabb = np.zeros((2, 2, self.dim/2, self.dim/2,
+        #                     self.dim/2, self.dim/2), dtype=complex)
+        # g2_aabb[0, 0, :, :, :, :] = rdms[2]
+        # g2_aabb[1, 1, :, :, :, :] = rdms[3]
+        # g2_aabb[0, 1, :, :, :, :] = rdms[4]
+        # g2_aabb[1, 0, :, :, :, :] = rdms[5]
+
+        dim = int(self.dim / 2)
+        mm = dim ** 2
+        g2_aabb = np.zeros((2*mm, 2*mm))
+        # unroll into the blocks
+        for p, q, r, s in product(range(int(self.dim/2)), repeat=4):
+            g2_aabb[p * dim + q, r * dim + s] = rdms[2][p, q, r, s].real
+            g2_aabb[p * dim + q + dim**2, r * dim + s + dim**2] = rdms[3][p, q, r, s].real
+            g2_aabb[p * dim + q, r * dim + s + dim**2] = rdms[4][p, q, r, s].real
+            g2_aabb[p * dim + q + dim**2, r * dim + s] = rdms[5][p, q, r, s].real
+
+        return [rdms[0], rdms[1], g2_aabb]
+
 
     def construct_tpdm_error_matrix(self, error_tpdm):
         """

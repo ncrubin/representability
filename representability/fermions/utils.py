@@ -419,7 +419,7 @@ def write_sdpfile(sdpfile_name, nc, nv, nnz, nb, A, b, cvec, blocksize):
 
         # write A matrix
         for row in range(A.shape[0]):
-            for col in np.nonzero(A[row, :])[0]:
+            for col in A.getrow(row).nonzero()[1]:
                 if not np.isclose(np.abs(A[row, col]), 0):
                     fid.write(
                         "%i %i %5.10E\n" % (row + 1, col + 1, A[row, col]))

@@ -24,6 +24,7 @@ from representability.fermions.hamiltonian import spin_orbital_marginal_norm_min
 from openfermion.hamiltonians import MolecularData
 from openfermion.transforms import jordan_wigner
 from openfermionpsi4 import run_psi4
+import openfermion as of
 
 
 # probably want to upgrade this with yield fixture.  This will need to be an object
@@ -43,10 +44,36 @@ def system():
                         run_fci=True,
                         delete_input=False)
 
-    molecule, gs_wf, n_density, eigen_val = get_molecule_openfermion(molecule, eigen_index=2)
+    op_mat = of.get_sparse_operator(molecule.get_molecular_hamiltonian()).toarray()
+    w, v = np.linalg.eigh(op_mat)
+    n_density = v[:, [2]] @ v[:, [2]].conj().T
     rdm_generator = AntiSymmOrbitalDensity(n_density, molecule.n_qubits)
     transform = jordan_wigner
     return n_density, rdm_generator, transform, molecule
+
+
+def system_hubbard():
+    print('Running System Setup')
+    import openfermion as of
+    U = 1
+    sites = 4
+    hubbard = of.hamiltonians.fermi_hubbard(1, sites, tunneling=1, coulomb=U,
+                                            chemical_potential=0,
+                                            magnetic_field=0,
+                                            periodic=False,
+                                            spinless=False)
+
+    # hamiltonian = of.get_interaction_operator(hubbard)
+    op_mat = of.get_number_preserving_sparse_operator(hubbard, 8, 4, spin_preserving=False).toarray()
+    w, v = np.linalg.eigh(op_mat)
+    gs_e = w[0]
+    print(gs_e)
+    op_mat = of.get_sparse_operator(hubbard).toarray()
+    w, v = np.linalg.eigh(op_mat)
+    print(w[0])
+    n_density = v[:, [0]] @ v[:, [0]].conj().T
+    rdm_generator = AntiSymmOrbitalDensity(n_density, sites * 2)
+    return n_density, rdm_generator
 
 
 def system_h4():
@@ -67,7 +94,9 @@ def system_h4():
                         run_fci=True,
                         delete_input=False)
 
-    molecule, gs_wf, n_density, eigen_val = get_molecule_openfermion(molecule, eigen_index=0)
+    op_mat = of.get_sparse_operator(molecule.get_molecular_hamiltonian()).toarray()
+    w, v = np.linalg.eigh(op_mat)
+    n_density = v[:, [0]] @ v[:, [0]].conj().T
     rdm_generator = AntiSymmOrbitalDensity(n_density, molecule.n_qubits)
     transform = jordan_wigner
     return n_density, rdm_generator, transform, molecule
@@ -78,7 +107,14 @@ def test_d2_trace():
     assert np.isclose(molecule.fci_energy, -2.84383506834)
 
     density = AntiSymmOrbitalDensity(n_density, molecule.n_qubits)
+    dim = molecule.n_orbitals
     tpdm_aa, tpdm_bb, tpdm_ab, _ = density.construct_tpdm()
+
+    Na, Nb = 1, 1
+    trace_ab = 0
+    for i, j in product(range(molecule.n_orbitals), repeat=2):
+        trace_ab += tpdm_ab[i * dim + j, i * dim + j]
+    assert np.isclose(trace_ab, Na, Nb)
     bas_aa, bas_ab = geminal_spin_basis(molecule.n_orbitals)
 
     tpdm_aa = Tensor(tpdm_aa, name='cckk_aa', basis=bas_aa)
@@ -131,6 +167,131 @@ def test_d2_trace():
     assert np.allclose(residual, np.zeros_like(residual))
 
 
+def test_d2_trace_h4():
+    n_density, rdm_generator, transform, molecule = system_h4()
+
+    density = AntiSymmOrbitalDensity(n_density, molecule.n_qubits)
+    dim = molecule.n_orbitals
+    tpdm_aa, tpdm_bb, tpdm_ab, _ = density.construct_tpdm()
+
+    Na, Nb = 2, 2
+    trace_ab = 0
+    for i, j in product(range(molecule.n_orbitals), repeat=2):
+        trace_ab += tpdm_ab[i * dim + j, i * dim + j]
+    assert np.isclose(trace_ab, Na, Nb)
+    assert np.isclose(np.trace(tpdm_aa), Na * (Na - 1) / 2)
+    assert np.isclose(np.trace(tpdm_bb), Nb * (Nb - 1) / 2)
+    bas_aa, bas_ab = geminal_spin_basis(molecule.n_orbitals)
+
+    tpdm_aa = Tensor(tpdm_aa, name='cckk_aa', basis=bas_aa)
+    tpdm_bb = Tensor(tpdm_bb, name='cckk_bb', basis=bas_aa)
+    tpdm_ab = Tensor(tpdm_ab, name='cckk_ab', basis=bas_ab)
+    rdms = MultiTensor([tpdm_aa, tpdm_bb, tpdm_ab])
+
+    dual_basis = trace_d2_aa(molecule.n_orbitals, molecule.n_electrons / 2)
+    rdms.dual_basis = DualBasis(elements=[dual_basis])
+    A, b, c = rdms.synthesize_dual_basis()
+    Amat = A.todense()
+    bmat = b.todense()
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+    dual_basis = trace_d2_bb(molecule.n_orbitals, molecule.n_electrons / 2)
+    rdms.dual_basis = DualBasis(elements=[dual_basis])
+    A, _, c = rdms.synthesize_dual_basis()
+    Amat = A.todense()
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+    dual_basis = trace_d2_ab(molecule.n_orbitals, molecule.n_electrons / 2,
+                             molecule.n_electrons / 2)
+    rdms.dual_basis = DualBasis(elements=[dual_basis])
+    A, _, c = rdms.synthesize_dual_basis()
+    Amat = A.todense()
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+    db = DualBasis()
+    db += trace_d2_aa(molecule.n_orbitals, molecule.n_electrons / 2)
+    db += trace_d2_ab(molecule.n_orbitals, molecule.n_electrons / 2,
+                      molecule.n_electrons / 2)
+    db += trace_d2_bb(molecule.n_orbitals, molecule.n_electrons / 2)
+    rdms.dual_basis = db
+    A, _, c = rdms.synthesize_dual_basis()
+    Amat = A.todense()
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+
+def test_d2_trace_hubbard():
+    n_density, rdm_generator = system_hubbard()
+
+    density = AntiSymmOrbitalDensity(n_density, 8)
+    tpdm_aa, tpdm_bb, tpdm_ab, _ = density.construct_tpdm()
+    bas_aa, bas_ab = geminal_spin_basis(4)
+
+    tpdm_aa = Tensor(tpdm_aa, name='cckk_aa', basis=bas_aa)
+    tpdm_bb = Tensor(tpdm_bb, name='cckk_bb', basis=bas_aa)
+    tpdm_ab = Tensor(tpdm_ab, name='cckk_ab', basis=bas_ab)
+    rdms = MultiTensor([tpdm_aa, tpdm_bb, tpdm_ab])
+
+    dual_basis = trace_d2_aa(4, 2)
+    rdms.dual_basis = DualBasis(elements=[dual_basis])
+    A, b, c = rdms.synthesize_dual_basis()
+    Amat =  A.todense()
+    bmat = b.todense()
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+    dual_basis = trace_d2_bb(4, 2)
+    rdms.dual_basis = DualBasis(elements=[dual_basis])
+    A, _, c = rdms.synthesize_dual_basis()
+    Amat =  A.todense()
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+    dual_basis = trace_d2_ab(4, 2, 2)
+    rdms.dual_basis = DualBasis(elements=[dual_basis])
+    A, _, c = rdms.synthesize_dual_basis()
+    Amat =  A.todense()
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+    db = DualBasis()
+    db += trace_d2_aa(4, 2)
+    db += trace_d2_ab(4, 2, 2)
+    db += trace_d2_bb(4, 2)
+    rdms.dual_basis = db
+    A, _, c = rdms.synthesize_dual_basis()
+    Amat =  A.todense()
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+
 def test_d2_spin_rep():
     n_density, rdm_generator, transform, molecule = system()
     assert np.isclose(molecule.fci_energy, -2.84383506834)
@@ -148,6 +309,60 @@ def test_d2_spin_rep():
         s_rep_dual_constant += tpdm_ab.data[bas_ab.rev((i, j)), bas_ab.rev((j, i))]
 
     N = molecule.n_electrons
+    M = 0
+    S = 0
+    db = DualBasis()
+    db += s_representability_d2ab(dim, N, M, S)
+    rdms.dual_basis = db
+    xvec = rdms.vectorize_tensors()
+    A, _, b = rdms.synthesize_dual_basis()
+    assert np.allclose(A.dot(xvec) - b, 0.0)
+    assert np.allclose(A.dot(xvec), s_rep_dual_constant)
+
+
+def test_d2_spin_rep_h4():
+    n_density, rdm_generator, transform, molecule = system_h4()
+
+    density = AntiSymmOrbitalDensity(n_density, molecule.n_qubits)
+    tpdm_aa, tpdm_bb, tpdm_ab, _ = density.construct_tpdm()
+    bas_aa, bas_ab = geminal_spin_basis(molecule.n_orbitals)
+
+    tpdm_ab = Tensor(tpdm_ab, name='cckk_ab', basis=bas_ab)
+    rdms = MultiTensor([tpdm_ab])
+
+    dim = int(np.sqrt(tpdm_ab.data.shape[0]))
+    s_rep_dual_constant = 0
+    for i, j in product(range(dim), repeat=2):
+        s_rep_dual_constant += tpdm_ab.data[bas_ab.rev((i, j)), bas_ab.rev((j, i))]
+
+    N = molecule.n_electrons
+    M = 0
+    S = 0
+    db = DualBasis()
+    db += s_representability_d2ab(dim, N, M, S)
+    rdms.dual_basis = db
+    xvec = rdms.vectorize_tensors()
+    A, _, b = rdms.synthesize_dual_basis()
+    assert np.allclose(A.dot(xvec) - b, 0.0)
+    assert np.allclose(A.dot(xvec), s_rep_dual_constant)
+
+
+def test_d2_spin_rep_hubbard():
+    n_density, rdm_generator = system_hubbard()
+
+    density = AntiSymmOrbitalDensity(n_density, 8)
+    tpdm_aa, tpdm_bb, tpdm_ab, _ = density.construct_tpdm()
+    bas_aa, bas_ab = geminal_spin_basis(4)
+
+    tpdm_ab = Tensor(tpdm_ab, name='cckk_ab', basis=bas_ab)
+    rdms = MultiTensor([tpdm_ab])
+
+    dim = int(np.sqrt(tpdm_ab.data.shape[0]))
+    s_rep_dual_constant = 0
+    for i, j in product(range(dim), repeat=2):
+        s_rep_dual_constant += tpdm_ab.data[bas_ab.rev((i, j)), bas_ab.rev((j, i))]
+
+    N = 4
     M = 0
     S = 0
     db = DualBasis()
@@ -197,8 +412,6 @@ def test_d2_d1_mapping():
     tpdm_aa, tpdm_bb, tpdm_ab, [bas_aa, bas_ab] = density.construct_tpdm()
     opdm_a, opdm_b = density.construct_opdm()
 
-    # bas_aa, bas_ab = geminal_spin_basis(molecule.n_orbitals)
-
     from itertools import product
     test_opdm = np.zeros_like(opdm_a)
     for i, j in product(range(opdm_a.shape[0]), repeat=2):
@@ -209,12 +422,12 @@ def test_d2_d1_mapping():
                     bot_gem = tuple(sorted([j, r]))
                     parity = (-1)**(r < i) * (-1)**(r < j)
                     if i == j:
-                        test_opdm[i, j] += tpdm_aa[bas_aa[top_gem], bas_aa[bot_gem]] * 0.5 * parity
+                        test_opdm[i, j] += tpdm_aa[bas_aa[top_gem], bas_aa[bot_gem]] * parity
                     else:
-                        test_opdm[j, i] += tpdm_aa[bas_aa[top_gem], bas_aa[bot_gem]] * 0.5 * parity * 0.5
-                        test_opdm[j, i] += tpdm_aa[bas_aa[bot_gem], bas_aa[top_gem]] * 0.5 * parity * 0.5
-                        test_opdm[i, j] += tpdm_aa[bas_aa[top_gem], bas_aa[bot_gem]] * 0.5 * parity * 0.5
-                        test_opdm[i, j] += tpdm_aa[bas_aa[bot_gem], bas_aa[top_gem]] * 0.5 * parity * 0.5
+                        test_opdm[j, i] += tpdm_aa[bas_aa[top_gem], bas_aa[bot_gem]] * parity * 0.5
+                        test_opdm[j, i] += tpdm_aa[bas_aa[bot_gem], bas_aa[top_gem]] * parity * 0.5
+                        test_opdm[i, j] += tpdm_aa[bas_aa[top_gem], bas_aa[bot_gem]] * parity * 0.5
+                        test_opdm[i, j] += tpdm_aa[bas_aa[bot_gem], bas_aa[top_gem]] * parity * 0.5
 
     assert np.allclose(test_opdm, opdm_a)
 
@@ -227,10 +440,63 @@ def test_d2_d1_mapping():
     rdms = MultiTensor([opdm_a, opdm_b, tpdm_aa, tpdm_bb, tpdm_ab])
 
     # d2ab_d1a test
+    dual_basis = DualBasis()
     dual_basis = d2ab_d1a_mapping(molecule.n_orbitals, molecule.n_electrons / 2)
     dual_basis += d2ab_d1b_mapping(molecule.n_orbitals, molecule.n_electrons / 2)
     dual_basis += d2aa_d1a_mapping(molecule.n_orbitals, molecule.n_electrons / 2)
     dual_basis += d2bb_d1b_mapping(molecule.n_orbitals, molecule.n_electrons / 2)
+    rdms.dual_basis = dual_basis
+    A, _, c = rdms.synthesize_dual_basis()
+    Amat =  A.todense()
+    w, v = np.linalg.eigh(np.dot(Amat, Amat.T))
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+
+def test_d2_d1_mapping_hubbard():
+    n_density, rdm_generator = system_hubbard()
+
+    density = AntiSymmOrbitalDensity(n_density, 8)
+    tpdm_aa, tpdm_bb, tpdm_ab, [bas_aa, bas_ab] = density.construct_tpdm()
+    opdm_a, opdm_b = density.construct_opdm()
+
+
+    from itertools import product
+    test_opdm = np.zeros_like(opdm_a)
+    for i, j in product(range(opdm_a.shape[0]), repeat=2):
+        if i <= j:
+            for r in range(opdm_a.shape[0]):
+                if i != r and j != r:
+                    top_gem = tuple(sorted([i, r]))
+                    bot_gem = tuple(sorted([j, r]))
+                    parity = (-1)**(r < i) * (-1)**(r < j)
+                    if i == j:
+                        test_opdm[i, j] += tpdm_aa[bas_aa[top_gem], bas_aa[bot_gem]] * parity
+                    else:
+                        test_opdm[j, i] += tpdm_aa[bas_aa[top_gem], bas_aa[bot_gem]] * parity * 0.5
+                        test_opdm[j, i] += tpdm_aa[bas_aa[bot_gem], bas_aa[top_gem]] * parity * 0.5
+                        test_opdm[i, j] += tpdm_aa[bas_aa[top_gem], bas_aa[bot_gem]] * parity * 0.5
+                        test_opdm[i, j] += tpdm_aa[bas_aa[bot_gem], bas_aa[top_gem]] * parity * 0.5
+
+    assert np.allclose(test_opdm, opdm_a)
+
+    bas_aa, bas_ab = geminal_spin_basis(4)
+    opdm_a = Tensor(opdm_a, name='ck_a')
+    opdm_b = Tensor(opdm_b, name='ck_b')
+    tpdm_aa = Tensor(tpdm_aa, name='cckk_aa', basis=bas_aa)
+    tpdm_bb = Tensor(tpdm_bb, name='cckk_bb', basis=bas_aa)
+    tpdm_ab = Tensor(tpdm_ab, name='cckk_ab', basis=bas_ab)
+    rdms = MultiTensor([opdm_a, opdm_b, tpdm_aa, tpdm_bb, tpdm_ab])
+
+    # d2ab_d1a test
+    Na = Nb = 2
+    dual_basis =  d2ab_d1a_mapping(4, Nb)
+    dual_basis += d2ab_d1b_mapping(4, Na)
+    dual_basis += d2aa_d1a_mapping(4, Na)
+    dual_basis += d2bb_d1b_mapping(4, Nb)
     rdms.dual_basis = dual_basis
     A, _, c = rdms.synthesize_dual_basis()
     Amat =  A.todense()
@@ -308,7 +574,6 @@ def test_d2_q2_mapping():
     tqdm_bb = Tensor(tqdm_bb, name='kkcc_bb', basis=bas_aa)
     tqdm_ab = Tensor(tqdm_ab, name='kkcc_ab', basis=bas_ab)
 
-
     rdms = MultiTensor([opdm_a, opdm_b, tpdm_aa, tpdm_bb, tpdm_ab, tqdm_aa, tqdm_bb, tqdm_ab])
     dual_basis = d2_q2_mapping(molecule.n_orbitals)
     rdms.dual_basis = dual_basis
@@ -321,15 +586,13 @@ def test_d2_q2_mapping():
     assert np.allclose(residual, np.zeros_like(residual))
 
 
-def test_d2_g2_mapping():
-    n_density, rdm_generator, transform, molecule = system_h4()
-
-    density = AntiSymmOrbitalDensity(n_density, molecule.n_qubits)
+def test_d2_q2_mapping_hubbard():
+    n_density, rdm_generator = system_hubbard()
+    density = AntiSymmOrbitalDensity(n_density, 8)
     tpdm_aa, tpdm_bb, tpdm_ab, _ = density.construct_tpdm()
     tqdm_aa, tqdm_bb, tqdm_ab, _ = density.construct_thdm()
-    phdm_ab, phdm_ba, phdm_aabb = density.construct_phdm()
     opdm_a, opdm_b = density.construct_opdm()
-    bas_aa, bas_ab = geminal_spin_basis(molecule.n_orbitals)
+    bas_aa, bas_ab = geminal_spin_basis(4)
 
     opdm_a = Tensor(opdm_a, name='ck_a')
     opdm_b = Tensor(opdm_b, name='ck_b')
@@ -339,15 +602,143 @@ def test_d2_g2_mapping():
     tqdm_aa = Tensor(tqdm_aa, name='kkcc_aa', basis=bas_aa)
     tqdm_bb = Tensor(tqdm_bb, name='kkcc_bb', basis=bas_aa)
     tqdm_ab = Tensor(tqdm_ab, name='kkcc_ab', basis=bas_ab)
-    phdm_ab = Tensor(phdm_ab, name='ckck_ab')
-    phdm_ba = Tensor(phdm_ba, name='ckck_ba')
+
+    rdms = MultiTensor([opdm_a, opdm_b, tpdm_aa, tpdm_bb, tpdm_ab, tqdm_aa, tqdm_bb, tqdm_ab])
+    dual_basis = d2_q2_mapping(4)
+    rdms.dual_basis = dual_basis
+    A, _, c = rdms.synthesize_dual_basis()
+    Amat =  A.todense()
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+
+def test_d2_g2_mapping():
+    n_density, rdm_generator, transform, molecule = system_h4()
+    # n_density, rdm_generator = system_hubbard()
+    # n_density, rdm_generator, transform, molecule = system()
+    dim = 4
+    density = AntiSymmOrbitalDensity(n_density, 2 * dim)
+    tpdm_aa, tpdm_bb, tpdm_ab, _ = density.construct_tpdm()
+    tqdm_aa, tqdm_bb, tqdm_ab, _ = density.construct_thdm()
+    phdm_ab, phdm_ba, phdm_aabb = density.construct_phdm()
+    # for i, j, k, l in product(range(dim), repeat=4):
+    #     fop = ((2 * i, 1), (2 * j + 1, 0), (2 * l + 1, 1), (2 * k, 0))
+    #     fop = of.FermionOperator(fop)
+    #     opmat = of.get_sparse_operator(fop, n_qubits=2 * dim)
+    #     rdm_val = (np.trace(n_density @ opmat))
+    #     # print(rdm_val, phdm_ab[i * dim + j, k * dim + l])
+    #     assert np.isclose(rdm_val, phdm_ab[i * dim + j, k * dim + l])
+
+    # for i, j, k, l in product(range(dim), repeat=4):
+    #     fop = ((2 * i + 1, 1), (2 * j, 0), (2 * l, 1), (2 * k + 1, 0))
+    #     fop = of.FermionOperator(fop)
+    #     opmat = of.get_sparse_operator(fop, n_qubits=2 * dim)
+    #     rdm_val = (np.trace(n_density @ opmat))
+    #     assert np.isclose(rdm_val, phdm_ba[i * dim + j, k * dim + l])
+
+    # for i, j, k, l in product(range(dim), repeat=4):
+    #     fop = ((2 * i, 1), (2 * j, 0), (2 * k, 1), (2 * l, 0))
+    #     fop = of.FermionOperator(fop)
+    #     opmat = of.get_sparse_operator(of.jordan_wigner(fop), n_qubits=2 * dim)
+    #     rdm_val = (np.trace(n_density @ opmat))
+    #     assert np.isclose(rdm_val, phdm_aabb[i * dim + j, l * dim + k])
+
+    # for i, j, k, l in product(range(dim), repeat=4):
+    #     fop = ((2 * i + 1, 1), (2 * j + 1, 0), (2 * k + 1, 1), (2 * l + 1, 0))
+    #     fop = of.FermionOperator(fop)
+    #     opmat = of.get_sparse_operator(of.jordan_wigner(fop), n_qubits=2 * dim)
+    #     rdm_val = (np.trace(n_density @ opmat))
+    #     # print((i, j, k, l), rdm_val, phdm_aabb[i * dim + j + dim**2, l * dim + k + dim**2])
+    #     assert np.isclose(rdm_val, phdm_aabb[i * dim + j + dim**2, l * dim + k + dim**2])
+
+    # for i, j, k, l in product(range(dim), repeat=4):
+    #     fop = ((2 * i, 1), (2 * j, 0), (2 * k + 1, 1), (2 * l + 1, 0))
+    #     fop = of.FermionOperator(fop)
+    #     opmat = of.get_sparse_operator(of.jordan_wigner(fop), n_qubits=2 * dim)
+    #     rdm_val = (np.trace(n_density @ opmat))
+    #     assert np.isclose(rdm_val, phdm_aabb[i * dim + j, l * dim + k + dim**2])
+
+    # for i, j, k, l in product(range(dim), repeat=4):
+    #     fop = ((2 * i + 1, 1), (2 * j + 1, 0), (2 * l, 1), (2 * k, 0))
+    #     fop = of.FermionOperator(fop)
+    #     opmat = of.get_sparse_operator(of.jordan_wigner(fop), n_qubits=2 * dim)
+    #     rdm_val = (np.trace(n_density @ opmat))
+    #     # print((i, j, k, l), rdm_val, phdm_aabb[i * dim + j + dim**2, k * dim + l])
+    #     assert np.isclose(rdm_val, phdm_aabb[i * dim + j + dim**2, k * dim + l])
+
+    # for i, j, k, l in product(range(dim), repeat=4):
+    #     assert np.isclose(phdm_aabb[i * dim + j + dim**2, k * dim + l],
+    #                       phdm_aabb[k * dim + l, i * dim + j + dim**2]
+    #                       )
+
+    assert of.is_hermitian(phdm_ab)
+    assert of.is_hermitian(phdm_ba)
+    assert of.is_hermitian(phdm_aabb)
+    w, v = np.linalg.eigh(phdm_ab)
+    assert np.all(w > -1.0E-14)
+    w, v = np.linalg.eigh(phdm_ba)
+    assert np.all(w > -1.0E-14)
+    w, v = np.linalg.eigh(phdm_aabb)
+    assert np.all(w > -1.0E-14)
+
+    opdm_a, opdm_b = density.construct_opdm()
+    bas_aa, bas_ab = geminal_spin_basis(dim)
+
+    opdm_a = Tensor(opdm_a, name='ck_a')
+    opdm_b = Tensor(opdm_b, name='ck_b')
+    tpdm_aa = Tensor(tpdm_aa, name='cckk_aa', basis=bas_aa)
+    tpdm_bb = Tensor(tpdm_bb, name='cckk_bb', basis=bas_aa)
+    tpdm_ab = Tensor(tpdm_ab, name='cckk_ab', basis=bas_ab)
+    tqdm_aa = Tensor(tqdm_aa, name='kkcc_aa', basis=bas_aa)
+    tqdm_bb = Tensor(tqdm_bb, name='kkcc_bb', basis=bas_aa)
+    tqdm_ab = Tensor(tqdm_ab, name='kkcc_ab', basis=bas_ab)
+    phdm_ab = Tensor(phdm_ab, name='ckck_ab', basis=bas_ab)
+    phdm_ba = Tensor(phdm_ba, name='ckck_ba', basis=bas_ab)
     phdm_aabb = Tensor(phdm_aabb, name='ckck_aabb')  # What basis do we want to use for super blocks like this?
 
     rdms = MultiTensor([opdm_a, opdm_b, tpdm_aa, tpdm_bb, tpdm_ab, tqdm_aa, tqdm_bb, tqdm_ab,
                         phdm_ab, phdm_ba, phdm_aabb])
-    dual_basis = d2_g2_mapping(molecule.n_orbitals)
+    dual_basis = d2_g2_mapping(dim)
     rdms.dual_basis = dual_basis
 
+    A, _, c = rdms.synthesize_dual_basis()
+    Amat = A.todense()
+    cmat = c.todense()
+
+    primal_vec = rdms.vectorize_tensors()
+    residual = Amat.dot(primal_vec) - cmat
+    assert np.allclose(residual, np.zeros_like(residual))
+
+
+def test_d2_g2_mapping_hubbard():
+    n_density, rdm_generator = system_hubbard()
+
+    density = AntiSymmOrbitalDensity(n_density, 8)
+    tpdm_aa, tpdm_bb, tpdm_ab, _ = density.construct_tpdm()
+    tqdm_aa, tqdm_bb, tqdm_ab, _ = density.construct_thdm()
+    phdm_ab, phdm_ba, phdm_aabb = density.construct_phdm()
+    opdm_a, opdm_b = density.construct_opdm()
+    bas_aa, bas_ab = geminal_spin_basis(4)
+
+    opdm_a = Tensor(opdm_a, name='ck_a')
+    opdm_b = Tensor(opdm_b, name='ck_b')
+    tpdm_aa = Tensor(tpdm_aa, name='cckk_aa', basis=bas_aa)
+    tpdm_bb = Tensor(tpdm_bb, name='cckk_bb', basis=bas_aa)
+    tpdm_ab = Tensor(tpdm_ab, name='cckk_ab', basis=bas_ab)
+    tqdm_aa = Tensor(tqdm_aa, name='kkcc_aa', basis=bas_aa)
+    tqdm_bb = Tensor(tqdm_bb, name='kkcc_bb', basis=bas_aa)
+    tqdm_ab = Tensor(tqdm_ab, name='kkcc_ab', basis=bas_ab)
+    phdm_ab = Tensor(phdm_ab, name='ckck_ab', basis=bas_ab)
+    phdm_ba = Tensor(phdm_ba, name='ckck_ba', basis=bas_ab)
+    phdm_aabb = Tensor(phdm_aabb, name='ckck_aabb')  # What basis do we want to use for super blocks like this?
+
+    rdms = MultiTensor([opdm_a, opdm_b, tpdm_aa, tpdm_bb, tpdm_ab, tqdm_aa, tqdm_bb, tqdm_ab,
+                        phdm_ab, phdm_ba, phdm_aabb])
+    dual_basis = d2_g2_mapping(4)
+    rdms.dual_basis = dual_basis
     A, _, c = rdms.synthesize_dual_basis()
     Amat = A.todense()
     cmat = c.todense()
@@ -424,3 +815,17 @@ def test_d2_e2_constraint():
 
     assert np.allclose(A.dot(xvec) - b, 0.0)
 
+if __name__ == "__main__":
+    # test_d2_trace()
+    # test_d2_trace_h4()
+    # test_d2_trace_hubbard()
+    # test_d2_spin_rep()
+    # test_d2_spin_rep_h4()
+    # test_d2_spin_rep_hubbard()
+    # test_d2_d1_mapping()
+    # test_d2_d1_mapping_hubbard()
+    # test_d1_q1_mapping()
+    # test_d2_q2_mapping()
+    # test_d2_q2_mapping_hubbard()
+    test_d2_g2_mapping()
+    test_d2_g2_mapping_hubbard()

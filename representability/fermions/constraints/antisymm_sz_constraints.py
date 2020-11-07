@@ -11,6 +11,52 @@ from itertools import product
 from representability.dualbasis import DualBasisElement, DualBasis
 
 
+def gen_trans_2rdm(gem_dim, bas_dim):
+    bas = dict(zip(range(gem_dim), product(range(1, bas_dim + 1),
+                                           range(1, bas_dim + 1))))
+    bas_rev = dict(zip(bas.values(), bas.keys()))
+
+    D2ab_abas = {}
+    D2ab_abas_rev = {}
+    cnt = 0
+    for xx in range(bas_dim):
+        for yy in range(xx + 1, bas_dim):
+            D2ab_abas[cnt] = (xx + 1, yy + 1)
+            D2ab_abas_rev[(xx + 1, yy + 1)] = cnt
+            cnt += 1
+
+    D2ab_sbas = {}
+    D2ab_sbas_rev = {}
+    cnt = 0
+    for xx in range(bas_dim):
+        for yy in range(xx, bas_dim):
+            D2ab_sbas[cnt] = (xx + 1, yy + 1)
+            D2ab_sbas_rev[(xx + 1, yy + 1)] = cnt
+            cnt += 1
+
+    trans_mat = np.zeros((gem_dim, gem_dim))
+    cnt = 0
+    for xx in D2ab_abas.keys():
+        i, j = D2ab_abas[xx]
+        x1 = bas_rev[(i, j)]
+        x2 = bas_rev[(j, i)]
+        trans_mat[x1, cnt] = 1. / np.sqrt(2)
+        trans_mat[x2, cnt] = -1. / np.sqrt(2)
+        cnt += 1
+    for xx in D2ab_sbas.keys():
+        i, j = D2ab_sbas[xx]
+        x1 = bas_rev[(i, j)]
+        x2 = bas_rev[(j, i)]
+        if x1 == x2:
+            trans_mat[x1, cnt] = 1.0
+        else:
+            trans_mat[x1, cnt] = 1. / np.sqrt(2)
+            trans_mat[x2, cnt] = 1. / np.sqrt(2)
+        cnt += 1
+
+    return trans_mat, D2ab_abas, D2ab_abas_rev, D2ab_sbas, D2ab_sbas_rev
+
+
 def _trace_map(tname, dim, normalization):
     dbe = DualBasisElement()
     for i, j in product(range(dim), repeat=2):
@@ -21,11 +67,21 @@ def _trace_map(tname, dim, normalization):
 
 
 def trace_d2_aa(dim, Na):
-    return _trace_map('cckk_aa', dim, Na * (Na - 1))
+    dbe = DualBasisElement()
+    for i, j in product(range(dim), repeat=2):
+        if i < j:
+            dbe.add_element('cckk_aa', (i, j, i, j), 2.0)
+    dbe.dual_scalar = Na * (Na - 1)
+    return dbe
 
 
 def trace_d2_bb(dim, Nb):
-    return _trace_map('cckk_bb', dim, Nb * (Nb - 1))
+    dbe = DualBasisElement()
+    for i, j in product(range(dim), repeat=2):
+        if i < j:
+            dbe.add_element('cckk_bb', (i, j, i, j), 2.0)
+    dbe.dual_scalar = Nb * (Nb - 1)
+    return dbe
 
 
 def trace_d2_ab(dim, Na, Nb):
@@ -54,6 +110,153 @@ def s_representability_d2ab(dim, N, M, S):
         dbe.add_element('cckk_ab', (i, j, j, i), 1.0)
     dbe.dual_scalar = N/2.0 + M**2 - S*(S + 1)
     return dbe
+
+
+def s_representability_d2ab_to_d2bb(dim):
+    """
+    Constraint the antisymmetric part of the alpha-beta matrix to be equal
+    to the aa and bb components if a singlet
+
+    :param dim:
+    :return:
+    """
+    sma = dim * (dim - 1) // 2
+    sms = dim * (dim + 1) // 2
+    uadapt, d2ab_abas, d2ab_abas_rev, d2ab_sbas, d2ab_sbas_rev = \
+        gen_trans_2rdm(dim**2, dim)
+
+    d2ab_bas = {}
+    d2aa_bas = {}
+    cnt_ab = 0
+    cnt_aa = 0
+    for p, q in product(range(dim), repeat=2):
+        d2ab_bas[(p, q)] = cnt_ab
+        cnt_ab += 1
+        if p < q:
+            d2aa_bas[(p, q)] = cnt_aa
+            cnt_aa += 1
+    d2ab_rev = dict(zip(d2ab_bas.values(), d2ab_bas.keys()))
+    d2aa_rev = dict(zip(d2aa_bas.values(), d2aa_bas.keys()))
+
+    assert uadapt.shape == (int(dim)**2, int(dim)**2)
+    dbe_list = []
+    for r, s in product(range(dim * (dim - 1) // 2), repeat=2):
+        if r < s:
+            dbe = DualBasisElement()
+            # lower triangle
+            i, j = d2aa_rev[r]
+            k, l = d2aa_rev[s]
+            # aa element should equal the triplet block aa
+            dbe.add_element('cckk_bb', (i, j, k, l), -0.5)
+            coeff_mat = uadapt[:, [r]] @ uadapt[:, [s]].T
+            for p, q in product(range(coeff_mat.shape[0]), repeat=2):
+                if not np.isclose(coeff_mat[p, q], 0):
+                    ii, jj = d2ab_rev[p]
+                    kk, ll = d2ab_rev[q]
+                    dbe.add_element('cckk_ab', (ii, jj, kk, ll), 0.5 * coeff_mat[p, q])
+
+            # upper triangle .  Hermitian conjugate
+            dbe.add_element('cckk_bb', (k, l, i, j), -0.5)
+            coeff_mat = uadapt[:, [s]] @ uadapt[:, [r]].T
+            for p, q in product(range(coeff_mat.shape[0]), repeat=2):
+                if not np.isclose(coeff_mat[p, q], 0):
+                    ii, jj = d2ab_rev[p]
+                    kk, ll = d2ab_rev[q]
+                    dbe.add_element('cckk_ab', (ii, jj, kk, ll),
+                                    0.5 * coeff_mat[p, q])
+            dbe.simplify()
+            dbe_list.append(dbe)
+
+        elif r == s:
+           i, j = d2aa_rev[r]
+           k, l = d2aa_rev[s]
+           dbe = DualBasisElement()
+           # aa element should equal the triplet block aa
+           dbe.add_element('cckk_bb', (i, j, k, l), -1.0)
+           coeff_mat = uadapt[:, [r]] @ uadapt[:, [s]].T
+           for p, q in product(range(coeff_mat.shape[0]), repeat=2):
+               if not np.isclose(coeff_mat[p, q], 0):
+                   ii, jj = d2ab_rev[p]
+                   kk, ll = d2ab_rev[q]
+                   dbe.add_element('cckk_ab', (ii, jj, kk, ll), coeff_mat[p, q])
+           dbe.simplify()
+           dbe_list.append(dbe)
+
+    return DualBasis(elements=dbe_list)
+
+
+def s_representability_d2ab_to_d2aa(dim):
+    """
+    Constraint the antisymmetric part of the alpha-beta matrix to be equal
+    to the aa and bb components if a singlet
+
+    :param dim:
+    :return:
+    """
+    sma = dim * (dim - 1) // 2
+    sms = dim * (dim + 1) // 2
+    uadapt, d2ab_abas, d2ab_abas_rev, d2ab_sbas, d2ab_sbas_rev = \
+        gen_trans_2rdm(dim**2, dim)
+
+    d2ab_bas = {}
+    d2aa_bas = {}
+    cnt_ab = 0
+    cnt_aa = 0
+    for p, q in product(range(dim), repeat=2):
+        d2ab_bas[(p, q)] = cnt_ab
+        cnt_ab += 1
+        if p < q:
+            d2aa_bas[(p, q)] = cnt_aa
+            cnt_aa += 1
+    d2ab_rev = dict(zip(d2ab_bas.values(), d2ab_bas.keys()))
+    d2aa_rev = dict(zip(d2aa_bas.values(), d2aa_bas.keys()))
+
+    assert uadapt.shape == (int(dim)**2, int(dim)**2)
+    dbe_list = []
+    for r, s in product(range(dim * (dim - 1) // 2), repeat=2):
+        if r < s:
+            dbe = DualBasisElement()
+            # lower triangle
+            i, j = d2aa_rev[r]
+            k, l = d2aa_rev[s]
+            # aa element should equal the triplet block aa
+            dbe.add_element('cckk_aa', (i, j, k, l), -0.5)
+            coeff_mat = uadapt[:, [r]] @ uadapt[:, [s]].T
+            for p, q in product(range(coeff_mat.shape[0]), repeat=2):
+                if not np.isclose(coeff_mat[p, q], 0):
+                    ii, jj = d2ab_rev[p]
+                    kk, ll = d2ab_rev[q]
+                    dbe.add_element('cckk_ab', (ii, jj, kk, ll), 0.5 * coeff_mat[p, q])
+
+            # upper triangle .  Hermitian conjugate
+            dbe.add_element('cckk_aa', (k, l, i, j), -0.5)
+            coeff_mat = uadapt[:, [s]] @ uadapt[:, [r]].T
+            for p, q in product(range(coeff_mat.shape[0]), repeat=2):
+                if not np.isclose(coeff_mat[p, q], 0):
+                    ii, jj = d2ab_rev[p]
+                    kk, ll = d2ab_rev[q]
+                    dbe.add_element('cckk_ab', (ii, jj, kk, ll),
+                                    0.5 * coeff_mat[p, q])
+            dbe.simplify()
+            dbe_list.append(dbe)
+
+        elif r == s:
+           i, j = d2aa_rev[r]
+           k, l = d2aa_rev[s]
+           dbe = DualBasisElement()
+           # aa element should equal the triplet block aa
+           dbe.add_element('cckk_aa', (i, j, k, l), -1.0)
+           coeff_mat = uadapt[:, [r]] @ uadapt[:, [s]].T
+           for p, q in product(range(coeff_mat.shape[0]), repeat=2):
+               if not np.isclose(coeff_mat[p, q], 0):
+                   ii, jj = d2ab_rev[p]
+                   kk, ll = d2ab_rev[q]
+                   dbe.add_element('cckk_ab', (ii, jj, kk, ll), coeff_mat[p, q])
+           dbe.simplify()
+           dbe_list.append(dbe)
+
+    return DualBasis(elements=dbe_list)
+
 
 
 def sz_representability(dim, M):
@@ -105,7 +308,7 @@ def d2ab_d1b_mapping(dim, Na):
             dbe.add_element('ck_b', (j, i), -0.5 * Na)
             dbe.dual_scalar = 0
 
-            dbe.simplify()
+            # dbe.simplify()
             db += dbe
 
     return db
@@ -133,17 +336,16 @@ def d2aa_d1a_mapping(dim, Na):
                     ir_pair = (i, r) if i < r else (r, i)
                     jr_pair = (j, r) if j < r else (r, j)
                     if i == j:
-                        dbe.add_element('cckk_aa', (ir_pair[0], ir_pair[1], jr_pair[0], jr_pair[1]), sir * sjr * 0.5)
+                        dbe.add_element('cckk_aa', (ir_pair[0], ir_pair[1], jr_pair[0], jr_pair[1]), sir * sjr)
                     else:
-                        # TODO: Remember why I derived a factor of 0.25 (0.5 above) for this equation.
-                        dbe.add_element('cckk_aa', (ir_pair[0], ir_pair[1], jr_pair[0], jr_pair[1]), sir * sjr * 0.25)
-                        dbe.add_element('cckk_aa', (jr_pair[0], jr_pair[1], ir_pair[0], ir_pair[1]), sir * sjr * 0.25)
+                        dbe.add_element('cckk_aa', (ir_pair[0], ir_pair[1], jr_pair[0], jr_pair[1]), sir * sjr * 0.5)
+                        dbe.add_element('cckk_aa', (jr_pair[0], jr_pair[1], ir_pair[0], ir_pair[1]), sir * sjr * 0.5)
 
             dbe.add_element('ck_a', (i, j), -0.5 * (Na - 1))
             dbe.add_element('ck_a', (j, i), -0.5 * (Na - 1))
             dbe.dual_scalar = 0
 
-            dbe.simplify()
+            # dbe.simplify()
             db += dbe
 
     return db
@@ -171,17 +373,16 @@ def d2bb_d1b_mapping(dim, Nb):
                     ir_pair = (i, r) if i < r else (r, i)
                     jr_pair = (j, r) if j < r else (r, j)
                     if i == j:
-                        dbe.add_element('cckk_bb', (ir_pair[0], ir_pair[1], jr_pair[0], jr_pair[1]), sir * sjr * 0.5)
+                        dbe.add_element('cckk_bb', (ir_pair[0], ir_pair[1], jr_pair[0], jr_pair[1]), sir * sjr)
                     else:
-                        # TODO: Remember why I derived a factor of 0.25 (0.5 above) for this equation.
-                        dbe.add_element('cckk_bb', (ir_pair[0], ir_pair[1], jr_pair[0], jr_pair[1]), sir * sjr * 0.25)
-                        dbe.add_element('cckk_bb', (jr_pair[0], jr_pair[1], ir_pair[0], ir_pair[1]), sir * sjr * 0.25)
+                        dbe.add_element('cckk_bb', (ir_pair[0], ir_pair[1], jr_pair[0], jr_pair[1]), sir * sjr * 0.5)
+                        dbe.add_element('cckk_bb', (jr_pair[0], jr_pair[1], ir_pair[0], ir_pair[1]), sir * sjr * 0.5)
 
             dbe.add_element('ck_b', (i, j), -0.5 * (Nb - 1))
             dbe.add_element('ck_b', (j, i), -0.5 * (Nb - 1))
             dbe.dual_scalar = 0
 
-            dbe.simplify()
+            # dbe.simplify()
             db += dbe
 
     return db
@@ -222,7 +423,7 @@ def _contraction_base(tname_d2, tname_d1, dim, normalization, offset):
             dbe.add_element(tname_d1, (j, i), -0.5 * normalization)
             dbe.dual_scalar = 0
 
-            dbe.simplify()
+            # dbe.simplify()
             db += dbe
 
     return db
@@ -244,7 +445,7 @@ def _d1_q1_mapping(tname_d1, tname_q1, dim):
                 dbe.add_element(tname_q1, (i, j), 1.0)
                 dbe.dual_scalar = 1.0
 
-            db += dbe.simplify()
+            db += dbe# .simplify()
 
     return db
 
@@ -265,7 +466,7 @@ def d1a_d1b_mapping(tname_d1a, tname_d1b, dim):
                 dbe.add_element(tname_d1b, (i, j), -1.0)
                 dbe.dual_scalar = 0.0
 
-            db += dbe.simplify()
+            db += dbe# .simplify()
 
     return db
 
@@ -299,50 +500,111 @@ def d2_q2_mapping(dim):
     :return:
     """
     krond = np.eye(dim)
-    def d2q2element(p, q, r, s, factor, tname_d1_1, tname_d1_2, tname_d2, tname_q2):
+    def d2q2element(p, q, r, s, factor, tname_d1_1, tname_d2, tname_q2): # , spin_string):
+        """
+        # (   1.00000) cre(r) cre(s) des(q) des(p)
+
+        # (   1.00000) kdelta(p,s) cre(r) des(q)
+
+        # (  -1.00000) kdelta(p,r) cre(s) des(q)
+
+        # (  -1.00000) kdelta(q,s) cre(r) des(p)
+
+        # (   1.00000) kdelta(q,r) cre(s) des(p)
+
+        # (  -1.00000) kdelta(p,s) kdelta(q,r)
+        # (   1.00000) kdelta(p,r) kdelta(q,s)
+        """
         dbe = DualBasisElement()
-        dbe.add_element(tname_d1_1, (p, r), 2.0 * krond[q, s] * factor)
-        dbe.add_element(tname_d1_2, (q, s), 2.0 * krond[p, r] * factor)
-        dbe.add_element(tname_d1_1, (p, s), -2.0 * krond[r, q] * factor)
-        dbe.add_element(tname_d1_2, (q, r), -2.0 * krond[p, s] * factor)
-        dbe.add_element(tname_q2, (r, s, p, q), 1.0 * factor)
-        dbe.add_element(tname_d2, (p, q, r, s), -1.0 * factor)
+        dbe.add_element(tname_q2, (p, q, r, s), -factor)
+        dbe.add_element(tname_d2, (r, s, p, q), factor)
+
+        if p == s:
+            dbe.add_element(tname_d1_1, (r, q), factor)
+        if p == r:
+            dbe.add_element(tname_d1_1, (s, q), -factor)
+        if q == s:
+            dbe.add_element(tname_d1_1, (r, p), -factor)
+        if q == r:
+            dbe.add_element(tname_d1_1, (s, p), factor)
 
         # remember the negative sign because AX = b
-        dbe.dual_scalar = -2.0 * krond[s, p]*krond[r, q] * factor + 2.0 * krond[q, s] * krond[r, p] * factor
+        dbe.dual_scalar = -factor * (krond[p, r] * krond[q, s] - krond[p, s] * krond[q, r])
+
+        # dbe.add_element('kkcc_' + spin_string + spin_string, (r, s, p, q), factor)
+        # if q == s:
+        #     dbe.add_element('ck_' + spin_string, (p, r), factor)
+        # if p == s:
+        #     dbe.add_element('ck_' + spin_string, (q, r), -factor)
+        # if q == r:
+        #     dbe.add_element('kc_' + spin_string, (s, p), factor)
+        # if p == r:
+        #     dbe.add_element('kc_' + spin_string, (s, q), -factor)
+
+        # dbe.add_element('cckk_' + spin_string + spin_string, (p, q, r, s), -factor)
+        # dbe.dual_scalar = 0
         return dbe
 
-    def d2q2element_ab(p, q, r, s, factor, tname_d1_1, tname_d1_2, tname_d2, tname_q2):
-        if tname_d1_1 != 'ck_a':
-            raise TypeError("For some reason I am expecting a ck_a. Ask Nick")
-
+    def d2q2element_ab(p, q, r, s, factor):
         dbe = DualBasisElement()
-        dbe.add_element(tname_d1_1, (p, r), krond[q, s] * factor)
-        dbe.add_element(tname_d1_2, (q, s), krond[p, r] * factor)
-        dbe.add_element(tname_q2, (r, s, p, q), 1.0 * factor)
-        dbe.add_element(tname_d2, (p, q, r, s), -1.0 * factor)
-        dbe.dual_scalar = krond[q, s]*krond[p, r] * factor
+        if q == s:
+            dbe.add_element('ck_a', (p, r), factor)
+        if p == r:
+            dbe.add_element('kc_b', (s, q), -factor)
+
+        dbe.add_element('kkcc_ab', (r, s, p, q), factor)
+        dbe.add_element('cckk_ab', (p, q, r, s), -factor)
+        # dbe.dual_scalar = -krond[q, s]*krond[p, r] * factor
+        dbe.dual_scalar = 0
         return dbe
 
-    db = DualBasis()
-    d2_names = ['cckk_aa', 'cckk_bb', 'cckk_ab']
-    q2_names = ['kkcc_aa', 'kkcc_bb', 'kkcc_ab']
-    d1_names_1 = ['ck_a', 'ck_b', 'ck_a']
-    d1_names_2 = ['ck_a', 'ck_b', 'ck_b']
     dual_basis_list = []
-    for key in zip(d1_names_1, d1_names_2, d2_names, q2_names):
-        d1_1, d1_2, d2_n, q2_n = key
-        for p, q, r, s in product(range(dim), repeat=4):
-            if (d2_n == 'cckk_aa' or d2_n == 'cckk_bb') and p < q and r < s and p * dim + q <= r * dim + s:
-                dbe_1 = d2q2element(p, q, r, s, 0.5, d1_1, d1_2, d2_n, q2_n)
-                dbe_2 = d2q2element(r, s, p, q, 0.5, d1_1, d1_2, d2_n, q2_n)
-                # db += dbe_1.join_elements(dbe_2)
-                dual_basis_list.append(dbe_1.join_elements(dbe_2))
-            elif d2_n == 'cckk_ab' and p * dim + q <= r * dim + s:
-                dbe_1 = d2q2element_ab(p, q, r, s, 0.5, d1_1, d1_2, d2_n, q2_n)
-                dbe_2 = d2q2element_ab(r, s, p, q, 0.5, d1_1, d1_2, d2_n, q2_n)
-                # db += dbe_1.join_elements(dbe_2)
-                dual_basis_list.append(dbe_1.join_elements(dbe_2))
+    # for p, q, r, s in product(range(dim), repeat=4):
+    from representability.tensor import index_tuple_basis
+    gem_aa = []
+    gem_ab = []
+    for p, q in product(range(dim), repeat=2):
+        if p < q:
+            gem_aa.append((p, q))
+        gem_ab.append((p, q))
+
+    bas_aa = index_tuple_basis(gem_aa)
+    bas_ab = index_tuple_basis(gem_ab)
+
+    for i, j in product(range(dim * (dim - 1)//2), repeat=2):
+        if i >= j:
+            p, q = bas_aa.fwd(i)
+            r, s  = bas_aa.fwd(j)
+        # if p < q and r < s and p * dim + q < r * dim + s:
+            dbe1 = d2q2element(p, q, r, s, 0.5, 'ck_a', 'cckk_aa', 'kkcc_aa')
+            dbe2 = d2q2element(r, s, p, q, 0.5, 'ck_a', 'cckk_aa', 'kkcc_aa')
+            # dbe1 = d2q2element(p, q, r, s, 0.5, 'a')
+            # dbe2 = d2q2element(r, s, p, q, 0.5, 'a')
+            dual_basis_list.append(dbe1.join_elements(dbe2))
+
+            # dbe1 = d2q2element(p, q, r, s, 0.5, 'b')
+            # dbe2 = d2q2element(r, s, p, q, 0.5, 'b')
+            dbe1 = d2q2element(p, q, r, s, 0.5, 'ck_b', 'cckk_bb', 'kkcc_bb')
+            dbe2 = d2q2element(r, s, p, q, 0.5, 'ck_b', 'cckk_bb', 'kkcc_bb')
+            dual_basis_list.append(dbe1.join_elements(dbe2))
+
+        # # if p < q and r < s and p == r and q == s:
+        #     # dbe1 = d2q2element(p, q, r, s, 1., 'a')
+        #     dbe = d2q2element(p, q, r, s, 1., 'ck_a', 'cckk_aa', 'kkcc_aa')
+        #     dual_basis_list.append(dbe)
+
+        #     # # dbe1 = d2q2element(p, q, r, s, 1., 'b')
+        #     dbe = d2q2element(p, q, r, s, 1., 'ck_b', 'cckk_bb', 'kkcc_bb')
+        #     dual_basis_list.append(dbe)
+
+    for i, j in product(range(dim * dim), repeat=2):
+        if i >= j:
+            p, q = bas_ab.fwd(i)
+            r, s = bas_ab.fwd(j)
+        # if p * dim + q <= r * dim + s:
+            dbe1 = d2q2element_ab(p, q, r, s, 0.5)
+            dbe2 = d2q2element_ab(r, s, p, q, 0.5)
+            dual_basis_list.append(dbe1.join_elements(dbe2))
 
     return DualBasis(elements=dual_basis_list)
 
@@ -357,6 +619,27 @@ def d2_g2_mapping(dim):
     """
     krond = np.eye(dim)
     # d2 -> g2
+
+    def g2d2map_aa_or_bb(p, q, r, s, dim, key, factor=1.0):
+        """
+        Accept pqrs of G2 and map to D2
+        """
+        dbe = DualBasisElement()
+        quad = {'aa': [0, 0], 'bb': [1, 1]}
+        dbe.add_element('ckck_aabb', (p * dim + q + quad[key][0]*dim**2, r * dim + s + quad[key][1]*dim**2),
+                        -1.0 * factor)
+        if q == s:
+            dbe.add_element('ck_' + key[0], (p, r), krond[q, s] * factor)
+        if p != s and r != q:
+            gem1 = tuple(sorted([p, s]))
+            gem2 = tuple(sorted([r, q]))
+            parity = (-1)**(p < s) * (-1)**(r < q)
+            # factor of 0.5 is from the spin-adapting
+            dbe.add_element('cckk_' + key, (gem1[0], gem1[1], gem2[0], gem2[1]), parity * -factor)
+
+        dbe.dual_scalar = 0
+        return dbe
+
     def g2d2map_aabb(p, q, r, s, dim, key, factor=1.0):
         """
         Accept pqrs of G2 and map to D2
@@ -377,10 +660,14 @@ def d2_g2_mapping(dim):
     def g2d2map_ab(p, q, r, s, key, factor=1.0):
         dbe = DualBasisElement()
         if key == 'ab':
-            dbe.add_element('ck_' + key[0], (p, r), krond[q, s] * factor)
+            if q == s:
+                dbe.add_element('ck_' + key[0], (p, r), krond[q, s] * factor)
+
             dbe.add_element('cckk_' + key, (p, s, r, q), -1.0 * factor)
         elif key == 'ba':
-            dbe.add_element('ck_' + key[0], (p, r), krond[q, s] * factor)
+            if q == s:
+                dbe.add_element('ck_' + key[0], (p, r), krond[q, s] * factor)
+
             dbe.add_element('cckk_ab', (s, p, q, r), -1.0 * factor)
         else:
             raise TypeError("I only accept ab or ba blocks")
@@ -389,33 +676,13 @@ def d2_g2_mapping(dim):
         dbe.dual_scalar = 0.0
         return dbe
 
-    def g2d2map_aa_or_bb(p, q, r, s, dim, key, factor=1.0):
-        """
-        Accept pqrs of G2 and map to D2
-        """
-        dbe = DualBasisElement()
-        quad = {'aa': [0, 0], 'bb': [1, 1]}
-        dbe.add_element('ckck_aabb', (p * dim + q + quad[key][0]*dim**2, r * dim + s + quad[key][1]*dim**2),
-                        -1.0 * factor)
-        dbe.add_element('ck_' + key[0], (p, r), krond[q, s] * factor)
-        if p != s and r != q:
-            gem1 = tuple(sorted([p, s]))
-            gem2 = tuple(sorted([r, q]))
-            parity = (-1)**(p < s) * (-1)**(r < q)
-            dbe.add_element('cckk_' + key, (gem1[0], gem1[1], gem2[0], gem2[1]), parity * -0.5 * factor)
-
-        dbe.dual_scalar = 0
-        return dbe
-
-    db = DualBasis()
-    # do aa_aa block then bb_block
     dual_basis_list = []
+    # do aa_aa block then bb_block of the superblock
     for key in ['bb', 'aa']:
         for p, q, r, s in product(range(dim), repeat=4):
             if p * dim + q <= r * dim + s:
                 dbe_1 = g2d2map_aa_or_bb(p, q, r, s, dim, key, factor=0.5)
                 dbe_2 = g2d2map_aa_or_bb(r, s, p, q, dim, key, factor=0.5)
-                # db += dbe_1.join_elements(dbe_2)
                 dual_basis_list.append(dbe_1.join_elements(dbe_2))
 
     # this constraint is over the entire block!
@@ -431,7 +698,6 @@ def d2_g2_mapping(dim):
             if p * dim + q <= r * dim + s:
                 dbe_1 = g2d2map_ab(p, q, r, s, key, factor=0.5)
                 dbe_2 = g2d2map_ab(r, s, p, q, key, factor=0.5)
-                # db += dbe_1.join_elements(dbe_2)
                 dual_basis_list.append(dbe_1.join_elements(dbe_2))
 
     return DualBasis(elements=dual_basis_list)
@@ -570,13 +836,19 @@ def sz_adapted_linear_constraints(dim, Na, Nb, constraint_list, S=0, M=0):
         dual_basis += trace_d2_aa(dim, Na)
         dual_basis += trace_d2_bb(dim, Nb)
 
+        if Na == Nb:
+            dual_basis += s_representability_d2ab_to_d2aa(dim)
+            dual_basis += s_representability_d2ab_to_d2bb(dim)
+
     if 'ck' in constraint_list:
         if Na > 1:
             dual_basis += d2aa_d1a_mapping(dim, Na)
+            dual_basis += trace_d2_aa(dim, Na)
         else:
             dual_basis += trace_d2_aa(dim, Na)
         if Nb > 1:
             dual_basis += d2bb_d1b_mapping(dim, Nb)
+            dual_basis += trace_d2_bb(dim, Nb)
         else:
             dual_basis += trace_d2_bb(dim, Nb)
 
@@ -589,8 +861,8 @@ def sz_adapted_linear_constraints(dim, Na, Nb, constraint_list, S=0, M=0):
         # dual_basis += d1a_d1b_mapping('ck_a', 'ck_b', dim)
 
         # this might not be needed if s_representability is enforced
-        # if Na + Nb > 2:
-        #     dual_basis += sz_representability(dim, M)
+        if Na + Nb > 2:
+            dual_basis += sz_representability(dim, M)
 
     if 'kkcc' in constraint_list:
         dual_basis += d2_q2_mapping(dim)
